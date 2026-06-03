@@ -41,6 +41,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
 .kpi .delta{font-size:12px;margin-top:3px;color:var(--mu2)}
 .kpi.warn .val{color:var(--r)}
 .kpi.ok .val{color:var(--g)}
+.filter-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.filter-group{display:flex;flex-direction:column;gap:4px}
+.filter-group label{font-size:11px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.04em}
+.filter-group select{padding:8px 14px;border:1px solid var(--bd);border-radius:8px;font-size:14px;
+  background:var(--card);color:var(--tx);font-family:inherit;cursor:pointer;min-width:280px;font-weight:500}
+.filter-group select:focus{outline:none;border-color:var(--g)}
+.sm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px}
+.sm-card{border:0.5px solid var(--bd);border-radius:10px;padding:12px;background:var(--card)}
+.sm-card h4{font-size:13px;font-weight:600;color:var(--g);margin-bottom:4px;padding-bottom:6px;
+  border-bottom:2px solid var(--gl)}
+.sm-card .sm-meta{font-size:11px;color:var(--mu);margin-bottom:8px}
+.sm-canvas-wrap{position:relative;width:100%}
 .tabs{display:flex;gap:2px;background:var(--card);border:0.5px solid var(--bd);
   border-radius:10px;padding:4px;width:fit-content}
 .tb{padding:7px 16px;font-size:13px;border:none;background:transparent;cursor:pointer;
@@ -105,6 +117,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
     <div class="kpi" id="k1"><div class="lbl">Costo totale portfolio</div><div class="val">—</div><div class="delta">budget —</div></div>
     <div class="kpi" id="k2"><div class="lbl">Costo €/ha completato</div><div class="val">—</div><div class="delta">target —</div></div>
     <div class="kpi" id="k3"><div class="lbl">Giorni fermo totali</div><div class="val">—</div><div class="delta">7 siti attivi</div></div>
+  </div>
+
+  <div class="filter-row">
+    <div class="filter-group">
+      <label>Vista sito</label>
+      <select id="siteFilter" onchange="onSiteChange()">
+        <option value="__all__">🗂️ Tutti i siti (visione d'insieme)</option>
+      </select>
+    </div>
   </div>
 
   <div class="tabs">
@@ -237,6 +258,35 @@ const DEMO = {
 let DATA = null;
 let charts = {};
 let curTab = 0;
+let curSite = '__all__';  // '__all__' = visione d'insieme
+
+// Popola il selettore di sito con i siti realmente presenti nei dati
+function populateSiteFilter(){
+  const sel = document.getElementById('siteFilter');
+  if(!sel || !DATA) return;
+  const siti = (DATA.sitiF && DATA.sitiF.length) ? DATA.sitiF : (DATA.consolidamento||[]).map(c=>c.sitoFull||c.sito);
+  // Mantieni l'opzione "Tutti" e ricostruisci il resto
+  sel.innerHTML = '<option value="__all__">🗂️ Tutti i siti (visione d\'insieme)</option>';
+  siti.forEach(s=>{
+    const o = document.createElement('option');
+    o.value = s; o.textContent = '📍 '+s;
+    sel.appendChild(o);
+  });
+  sel.value = curSite;
+}
+
+function onSiteChange(){
+  curSite = document.getElementById('siteFilter').value;
+  destroyCharts();
+  renderTab(curTab);
+}
+
+// Restituisce l'indice del sito corrente nei dati, o -1 se "tutti"
+function siteIdx(){
+  if(curSite==='__all__') return -1;
+  const siti = DATA.sitiF || [];
+  return siti.indexOf(curSite);
+}
 
 function setStatus(st, msg){
   const dot = document.getElementById('statusDot');
@@ -350,7 +400,7 @@ function transformPA(raw){
     macchine = DEMO.macchine;
   }
 
-  return {siti:SITI.map(s=>s.split(' ')[0]), sitiF:SITI, attivita, tipi, consolidamento, avanzamento:matrice, gantt, macchine};
+  return {siti:SITI.map(s=>s.split(' ')[0]), sitiF:SITI, attivita, tipi, consolidamento, avanzamento:matrice, gantt, macchine, macRaw};
 }
 
 // ── Load data ─────────────────────────────────────────────────────────────────
@@ -411,6 +461,7 @@ function fmtE(n){return '€'+fmt(n);}
 
 // ── Render dispatcher ─────────────────────────────────────────────────────────
 function renderAll(){
+  populateSiteFilter();
   renderKPI();
   destroyCharts();
   renderTab(curTab);
@@ -426,6 +477,7 @@ function showTab(i){
   renderTab(i);
 }
 function renderTab(i){
+  updateModeIndicator();
   if(i===0) renderGantt();
   if(i===1) renderHeatmap();
   if(i===2) renderCosti();
@@ -433,52 +485,116 @@ function renderTab(i){
   if(i===4) renderMacchine();
 }
 
+function updateModeIndicator(){
+  const isAll = curSite==='__all__';
+  const tag = isAll
+    ? '<span style="display:inline-block;background:#E2EFDA;color:#1F5C2E;font-size:11px;font-weight:600;padding:2px 10px;border-radius:20px">VISIONE D\'INSIEME · tutti i siti</span>'
+    : '<span style="display:inline-block;background:#FFF3DC;color:#9A6200;font-size:11px;font-weight:600;padding:2px 10px;border-radius:20px">📍 '+curSite+'</span>';
+  // Inserisci il tag in ogni sottotitolo
+  document.querySelectorAll('.section .csub').forEach(el=>{
+    let base = el.getAttribute('data-base');
+    if(base===null){ base = el.innerHTML; el.setAttribute('data-base', base); }
+    el.innerHTML = base + '  ' + tag;
+  });
+}
+
 // ── GANTT ─────────────────────────────────────────────────────────────────────
-function renderGantt(){
-  const wrap = document.getElementById('c0wrap');
-  const g = (DATA.gantt||DEMO.gantt);
-  // Altezza dinamica in base al numero di barre
-  const h = Math.max(420, g.length*32 + 60);
-  wrap.style.height = h+'px';
-  wrap.innerHTML = '<canvas id="c0"></canvas>';
+function ganttChartConfig(rows, useFullLabel){
   const colMap = {done:'#97C459',ok:'#1F5C2E',warn:'#E24B4A'};
-  charts.c0 = new Chart(document.getElementById('c0'),{
+  return {
     type:'bar',
     data:{
-      labels:g.map(d=>d.label||d.att),
+      labels:rows.map(d=> useFullLabel ? (d.label||d.att) : d.att),
       datasets:[
-        {data:g.map(d=>d.prev[0]),backgroundColor:'transparent',stack:'p',borderWidth:0,label:'_start_p'},
-        {data:g.map(d=>d.prev[1]-d.prev[0]),backgroundColor:'#C0DD97',stack:'p',borderRadius:3,label:'Previsto'},
-        {data:g.map(d=>d.real[0]),backgroundColor:'transparent',stack:'r',borderWidth:0,label:'_start_r'},
-        {data:g.map(d=>d.real[1]-d.real[0]),backgroundColor:g.map(d=>colMap[d.status]||'#1F5C2E'),stack:'r',borderRadius:3,label:'Reale'},
+        {data:rows.map(d=>d.prev[0]),backgroundColor:'transparent',stack:'p',borderWidth:0,label:'_sp'},
+        {data:rows.map(d=>d.prev[1]-d.prev[0]),backgroundColor:'#C0DD97',stack:'p',borderRadius:3,label:'Previsto'},
+        {data:rows.map(d=>d.real[0]),backgroundColor:'transparent',stack:'r',borderWidth:0,label:'_sr'},
+        {data:rows.map(d=>d.real[1]-d.real[0]),backgroundColor:rows.map(d=>colMap[d.status]||'#1F5C2E'),stack:'r',borderRadius:3,label:'Reale'},
       ]
     },
     options:{
       indexAxis:'y',responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:false},
         tooltip:{callbacks:{
-          title:ctx=>g[ctx[0].dataIndex].label||g[ctx[0].dataIndex].att,
+          title:ctx=>rows[ctx[0].dataIndex].label||rows[ctx[0].dataIndex].att,
           label:ctx=>{
-            if(ctx.dataset.label==='Previsto') return ' Previsto: '+g[ctx.dataIndex].prev[0]+'→'+g[ctx.dataIndex].prev[1]+' gg';
-            if(ctx.dataset.label==='Reale') return ' Reale: '+g[ctx.dataIndex].real[0]+'→'+g[ctx.dataIndex].real[1]+' gg';
+            if(ctx.dataset.label==='Previsto') return ' Previsto: '+rows[ctx.dataIndex].prev[0]+'→'+rows[ctx.dataIndex].prev[1]+' gg';
+            if(ctx.dataset.label==='Reale') return ' Reale: '+rows[ctx.dataIndex].real[0]+'→'+rows[ctx.dataIndex].real[1]+' gg';
             return null;
         }}}
       },
       scales:{
-        x:{stacked:true,title:{display:true,text:'giorni dall\'avvio',font:{size:11}},ticks:{font:{size:11}}},
-        y:{stacked:true,ticks:{font:{size:11}}}
+        x:{stacked:true,title:{display:true,text:'giorni dall\'avvio',font:{size:10}},ticks:{font:{size:10}}},
+        y:{stacked:true,ticks:{font:{size:10}}}
       }
     }
-  });
+  };
+}
+
+function renderGantt(){
+  const wrap = document.getElementById('c0wrap');
+  let g = (DATA.gantt||DEMO.gantt);
+
+  if(curSite === '__all__'){
+    // VISIONE D'INSIEME — un mini-Gantt per ogni sito, affiancati
+    wrap.style.height = 'auto';
+    let gWork = g;
+    let siti = [...new Set(g.map(d=>d.sito).filter(Boolean))];
+    if(!siti.length){
+      // Demo senza sito: distribuisci su siti demo per mostrare la visione d'insieme
+      const demoSiti = (DATA.sitiF&&DATA.sitiF.length)?DATA.sitiF:DEMO.siti;
+      gWork = [];
+      demoSiti.forEach((s,si)=>{
+        g.forEach(d=>{
+          const shift = si*5;
+          gWork.push({...d, sito:s, label:s.split(' ')[0]+' · '+d.att,
+            real:[d.real[0], Math.max(d.real[0], d.real[1]-shift)]});
+        });
+      });
+      siti = demoSiti;
+    }
+    g = gWork;
+    let htmlG = '<div class="sm-grid">';
+    siti.forEach((s,i)=>{
+      const rows = g.filter(d=>d.sito===s);
+      const nRit = rows.filter(d=>d.status==='warn').length;
+      const nDone = rows.filter(d=>d.status==='done').length;
+      const hh = Math.max(200, rows.length*26 + 50);
+      htmlG += `<div class="sm-card">
+        <h4>📍 ${s}</h4>
+        <div class="sm-meta">${rows.length} attività · ${nDone} completate · ${nRit? '<span style="color:#E24B4A">'+nRit+' in ritardo</span>':'tutte in linea'}</div>
+        <div class="sm-canvas-wrap" style="height:${hh}px"><canvas id="cg${i}"></canvas></div>
+      </div>`;
+    });
+    htmlG += '</div>';
+    wrap.innerHTML = htmlG;
+    siti.forEach((s,i)=>{
+      const rows = g.filter(d=>d.sito===s);
+      charts['cg'+i] = new Chart(document.getElementById('cg'+i), ganttChartConfig(rows, false));
+    });
+  } else {
+    // SINGOLO SITO — Gantt dettagliato
+    const rows = g.filter(d=>d.sito===curSite);
+    const data = rows.length ? rows : g;
+    const h = Math.max(420, data.length*36 + 60);
+    wrap.style.height = h+'px';
+    wrap.innerHTML = '<canvas id="c0"></canvas>';
+    charts.c0 = new Chart(document.getElementById('c0'), ganttChartConfig(data, false));
+  }
 }
 
 // ── HEATMAP ───────────────────────────────────────────────────────────────────
 function renderHeatmap(){
   const el = document.getElementById('heatmap');
   const att = DATA.attivita||DEMO.attivita;
-  const siti = DATA.siti||DEMO.siti;
+  let siti = DATA.siti||DEMO.siti;
   const tipi = DATA.tipi||DEMO.tipi;
-  const mat  = DATA.avanzamento||DEMO.avanzamento;
+  let mat  = DATA.avanzamento||DEMO.avanzamento;
+
+  // Filtro sito: mostra solo la colonna del sito selezionato
+  const si = siteIdx();
+  let colIdx = null;
+  if(si>=0){ colIdx=si; siti=[siti[si]]; }
 
   let html = '<table class="hm-table"><tr><th>Attività</th>';
   siti.forEach(s=>html+=`<th>${s}</th>`);
@@ -486,7 +602,10 @@ function renderHeatmap(){
 
   att.forEach((a,i)=>{
     html+=`<tr><td>${a}</td>`;
-    (mat[i]||[]).forEach(v=>{
+    let cells = mat[i]||[];
+    if(colIdx!==null) cells = [cells[colIdx]];
+    cells.forEach(v=>{
+      v = v==null?0:v;
       const pct=Math.round(v);
       let bg,tx,lbl;
       if(tipi[i]==='status'){
@@ -510,7 +629,9 @@ function renderHeatmap(){
 function renderCosti(){
   const wrap = document.getElementById('c2wrap');
   wrap.innerHTML = '<canvas id="c2"></canvas>';
-  const d = DATA.consolidamento||DEMO.consolidamento;
+  let d = DATA.consolidamento||DEMO.consolidamento;
+  const si = siteIdx();
+  if(si>=0) d = d.filter(x=>(x.sitoFull||x.sito)===curSite || x.sito===curSite.split(' ')[0]);
   charts.c2 = new Chart(document.getElementById('c2'),{
     type:'bar',
     data:{
@@ -542,7 +663,9 @@ function renderCosti(){
 function renderBubble(){
   const wrap = document.getElementById('c3wrap');
   wrap.innerHTML = '<canvas id="c3"></canvas>';
-  const d = DATA.consolidamento||DEMO.consolidamento;
+  let d = DATA.consolidamento||DEMO.consolidamento;
+  const si = siteIdx();
+  if(si>=0) d = d.filter(x=>(x.sitoFull||x.sito)===curSite || x.sito===curSite.split(' ')[0]);
   const COLS=['#378ADD','#1D9E75','#EF9F27','#7F77DD','#D85A30','#E24B4A','#1F5C2E'];
   const ds = d.map((x,i)=>({
     label:x.sito,
@@ -567,7 +690,23 @@ function renderBubble(){
 function renderMacchine(){
   const wrap = document.getElementById('c4wrap');
   wrap.innerHTML = '<canvas id="c4"></canvas>';
-  const mac = DATA.macchine||DEMO.macchine;
+  let mac;
+  const si = siteIdx();
+  const macRaw = DATA.macRaw||[];
+  if(si>=0 && macRaw.length){
+    // Riaggrega solo per il sito selezionato
+    const mm={};
+    macRaw.filter(r=>(r['Sito']||r.Sito)===curSite).forEach(r=>{
+      const nome=r['Macchina']||r.Macchina; if(!nome)return;
+      if(!mm[nome]) mm[nome]={mac:nome,pres:0,usata:0};
+      mm[nome].pres += (+r['Presente']||+r.Presente||0);
+      mm[nome].usata+= (+r['Usata']||+r.Usata||0);
+    });
+    mac = Object.values(mm).sort((a,b)=>b.pres-a.pres);
+    if(!mac.length) mac=[{mac:'(nessun dato)',pres:0,usata:0}];
+  } else {
+    mac = DATA.macchine||DEMO.macchine;
+  }
   const ferme = mac.map(m=>Math.max(0,m.pres-m.usata));
   charts.c4 = new Chart(document.getElementById('c4'),{
     type:'bar',
