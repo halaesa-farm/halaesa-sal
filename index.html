@@ -50,9 +50,15 @@ input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-
 .mac-item{border:1px solid var(--bd);border-radius:8px;padding:10px;background:#fff}
 .mac-item.present{border-color:var(--a);background:#FFFDE7}
 .mac-item.used{border-color:var(--g);background:#E8F5E9}
-.mac-item .mlbl{font-size:12px;font-weight:600;margin-bottom:6px;display:block}
-.mac-toggles{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
-.mac-toggles label{font-size:10px;text-transform:uppercase;color:var(--mu);margin-bottom:2px}
+.mac-item .mlbl{font-size:12px;font-weight:600;margin-bottom:8px;display:block}
+.mac-checks{display:flex;flex-direction:column;gap:6px}
+.chk-lbl{display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 8px;border-radius:7px;border:1px solid var(--bd);background:#fafafa;transition:background .1s}
+.chk-lbl:active{background:#f0f0f0}
+.chk-lbl input[type=checkbox]{position:absolute;opacity:0;width:0;height:0}
+.chk-box{width:22px;height:22px;border-radius:6px;border:1.5px solid var(--bd);background:#fff;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.chk-lbl input:checked~.chk-box{background:var(--g);border-color:var(--g)}
+.chk-lbl input:checked~.chk-box::after{content:'';width:6px;height:10px;border:2px solid #fff;border-top:none;border-left:none;transform:rotate(45deg) translateY(-1px);display:block}
+.chk-tx{font-size:13px;font-weight:500;color:var(--tx)}
 
 /* GAS */
 .gas-box{background:var(--bl);border:1px solid var(--b);border-radius:10px;padding:14px;margin-bottom:10px}
@@ -224,7 +230,7 @@ const PA_URLS = {
   "Di Marco":           "https://default604dd46b04ae4e378cf4325163dfee.3a.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/872037af945241928ae3f155814973c4/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=6J1NGyJudX662MNhWB9tox3ug7tHqPEjdi9pFx3aLrI",
   "Garbinogara":        "https://default604dd46b04ae4e378cf4325163dfee.3a.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/0d84182c2d9f4b5481b256abfec3e801/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=-nEAEaWm57_pAytW4S_DTmPalEL1UJF8ij3H2Kzhqg4",
   "Orlando":            "https://default604dd46b04ae4e378cf4325163dfee.3a.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/c994d32974f04de4a24989c043f6e040/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=Z352bKjdg31ampLpJJYrL3OyGy1wk-GjL06VsSK9oI4",
-  "Baglio di Pianetto": "https://default604dd46b04ae4e378cf4325163dfee.3a.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/da06f8eff1734c6c887c716eaf395ce8/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=vrT7hs5H9zoAq1MyPZrylXiGPOztAAIQZP1JVc_ya3Y"
+  "Baglio di Pianetto": "https://default604dd46b04ae4e378cf4325163dfee.3a.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/176385bfe22943eaade0a91cfefc4bd5/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=5JUj6NaRfbrQB4vRVd76XUagbuslR4qzSr8rj229sRM"
 };
 
 // ── Default names ─────────────────────────────────────────────────────────────
@@ -290,22 +296,25 @@ function buildMac(){
   document.getElementById('mcR').innerHTML = '<div class="mac-grid">'+MACCHINE.map((m,i)=>
     '<div class="mac-item" id="mci'+i+'">' +
     '<span class="mlbl">'+m+'</span>' +
-    '<div><label>Attività</label><select id="mc_a'+i+'">'+attSel()+'</select></div>' +
-    '<div class="mac-toggles">' +
-    '<div><label>🟡 Presente</label><select id="mc_p'+i+'" onchange="toggleMac('+i+')"><option value="0">No</option><option value="1">Sì</option></select></div>' +
-    '<div><label>🟢 Usata</label><select id="mc_u'+i+'" onchange="toggleMac('+i+')"><option value="0">No</option><option value="1">Sì</option></select></div>' +
+    '<div style="margin-bottom:8px"><label>Attività</label><select id="mc_a'+i+'">'+attSel()+'</select></div>' +
+    '<div class="mac-checks">' +
+    '<label class="chk-lbl"><input type="checkbox" id="mc_p'+i+'" onchange="toggleMac('+i+')"><span class="chk-box"></span><span class="chk-tx" style="color:var(--pres)">🟡 Presente</span></label>' +
+    '<label class="chk-lbl"><input type="checkbox" id="mc_u'+i+'" onchange="toggleMac('+i+')"><span class="chk-box"></span><span class="chk-tx" style="color:var(--g)">🟢 Usata</span></label>' +
     '</div></div>').join('') + '</div>';
 }
 
 function toggleMac(i){
-  const p=gv('mc_p'+i)==='1', u=gv('mc_u'+i)==='1';
+  const p=document.getElementById('mc_p'+i).checked;
+  const u=document.getElementById('mc_u'+i).checked;
+  // Se usata viene flaggata, presente si attiva automaticamente
+  if(u && !p) document.getElementById('mc_p'+i).checked=true;
   const el=document.getElementById('mci'+i);
-  el.classList.toggle('present',p&&!u);
+  el.classList.toggle('present',document.getElementById('mc_p'+i).checked&&!u);
   el.classList.toggle('used',u);
   updateMacBdg();
 }
 function updateMacBdg(){
-  const n=MACCHINE.filter((_,i)=>gv('mc_p'+i)==='1').length;
+  const n=MACCHINE.filter((_,i)=>document.getElementById('mc_p'+i)&&document.getElementById('mc_p'+i).checked).length;
   document.getElementById('b2').textContent=n||'+';
 }
 
@@ -387,8 +396,8 @@ function payload(){
 
   const macchine=MACCHINE.map((m,i)=>({
     macchina:m,attivita:gv('mc_a'+i),
-    presente:parseInt(gv('mc_p'+i))||0,
-    usata:parseInt(gv('mc_u'+i))||0
+    presente:document.getElementById('mc_p'+i)&&document.getElementById('mc_p'+i).checked?1:0,
+    usata:document.getElementById('mc_u'+i)&&document.getElementById('mc_u'+i).checked?1:0
   })).filter(r=>r.presente===1||r.usata===1);
 
   const gasolio={litri:gn('gasL'),prelevatoDa:gv('gasBy')};
