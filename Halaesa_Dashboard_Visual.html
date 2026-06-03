@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Halaesa — Dashboard OS</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{--g:#1F5C2E;--gl:#E2EFDA;--gm:#C6E0B4;--a:#FF9900;--b:#0078D4;--r:#E24B4A;
+  --bg:#f5f7f5;--card:#ffffff;--bd:#e0e0e0;--tx:#1a1a1a;--mu:#666;--mu2:#999}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+  background:var(--bg);color:var(--tx);min-height:100vh}
+.hdr{background:var(--g);padding:12px 20px;display:flex;align-items:center;
+  justify-content:space-between;gap:12px;flex-wrap:wrap}
+.hdr h1{color:#fff;font-size:16px;font-weight:600}
+.hdr .sub{color:rgba(255,255,255,.6);font-size:12px;margin-top:1px}
+.hdr-right{display:flex;align-items:center;gap:10px}
+.status-dot{width:8px;height:8px;border-radius:50%;background:#4CAF50;flex-shrink:0}
+.status-dot.loading{background:var(--a);animation:pulse 1s infinite}
+.status-dot.error{background:var(--r)}
+.status-lbl{font-size:12px;color:rgba(255,255,255,.7)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.cfg-btn{background:rgba(255,255,255,.15);border:none;color:#fff;font-size:12px;
+  padding:5px 12px;border-radius:20px;cursor:pointer;font-family:inherit}
+.cfg-panel{background:#fff;border-bottom:1px solid var(--bd);padding:12px 20px;
+  display:none;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.cfg-panel.open{display:flex}
+.cfg-panel label{font-size:11px;font-weight:600;color:var(--mu);
+  text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:4px}
+.cfg-panel input{padding:8px 12px;border:1px solid var(--bd);border-radius:6px;
+  font-size:13px;width:420px;max-width:100%}
+.cfg-panel button{padding:8px 16px;background:var(--g);color:#fff;border:none;
+  border-radius:6px;font-size:13px;cursor:pointer;white-space:nowrap;font-family:inherit}
+.body{padding:16px 20px;display:flex;flex-direction:column;gap:14px;max-width:1400px;margin:0 auto}
+.kpi-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.kpi{background:var(--card);border:0.5px solid var(--bd);border-radius:10px;padding:14px}
+.kpi .lbl{font-size:11px;color:var(--mu);font-weight:600;text-transform:uppercase;
+  letter-spacing:.04em;margin-bottom:6px}
+.kpi .val{font-size:24px;font-weight:500}
+.kpi .delta{font-size:12px;margin-top:3px;color:var(--mu2)}
+.kpi.warn .val{color:var(--r)}
+.kpi.ok .val{color:var(--g)}
+.tabs{display:flex;gap:2px;background:var(--card);border:0.5px solid var(--bd);
+  border-radius:10px;padding:4px;width:fit-content}
+.tb{padding:7px 16px;font-size:13px;border:none;background:transparent;cursor:pointer;
+  border-radius:7px;color:var(--mu);font-family:inherit;font-weight:500}
+.tb.on{background:var(--g);color:#fff}
+.card{background:var(--card);border:0.5px solid var(--bd);border-radius:10px;padding:16px}
+.ct{font-size:14px;font-weight:500;margin-bottom:6px}
+.csub{font-size:12px;color:var(--mu);margin-bottom:14px}
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px}
+.li{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--mu)}
+.ls{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+.section{display:none}.section.on{display:block}
+.hm-wrap{overflow-x:auto}
+.hm-table{border-collapse:collapse;font-size:11px;width:100%}
+.hm-table th{padding:5px 8px;font-weight:500;color:var(--mu);text-align:center;
+  white-space:nowrap;font-size:10px}
+.hm-table th:first-child{text-align:left}
+.hm-table td{padding:6px 4px;text-align:center;font-size:10px;font-weight:500;
+  border:1px solid var(--bg)}
+.hm-table td:first-child{text-align:left;padding:6px 10px;white-space:nowrap;
+  font-size:11px;color:var(--tx);font-weight:400}
+.spin{display:inline-block;width:32px;height:32px;border:3px solid var(--gl);
+  border-top-color:var(--g);border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.loading-box{padding:60px;text-align:center;color:var(--mu)}
+.loading-box p{margin-top:12px;font-size:14px}
+.err-box{padding:40px;text-align:center;background:#fff5f5;border-radius:10px;
+  border:1px solid #ffd0d0;color:#c00000}
+.err-box h3{margin-bottom:8px}
+.err-box p{font-size:13px;opacity:.8}
+@media(max-width:600px){
+  .kpi-row{grid-template-columns:1fr 1fr}
+  .cfg-panel input{width:100%}
+}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div>
+    <h1>🥑 Halaesa — Dashboard Operazioni Straordinarie</h1>
+    <div class="sub" id="lastUpdate">Caricamento...</div>
+  </div>
+  <div class="hdr-right">
+    <div class="status-dot loading" id="statusDot"></div>
+    <span class="status-lbl" id="statusLbl">Connessione...</span>
+    <button class="cfg-btn" onclick="toggleCfg()">⚙ Configura URL</button>
+  </div>
+</div>
+
+<div class="cfg-panel" id="cfgPanel">
+  <div>
+    <label>URL flusso Power Automate (lettura Dashboard)</label>
+    <input type="text" id="cfgUrl" placeholder="https://prod-xx.westeurope.logic.azure.com/workflows/...">
+  </div>
+  <button onclick="saveCfgAndLoad()">Salva e aggiorna</button>
+</div>
+
+<div class="body">
+  <div class="kpi-row">
+    <div class="kpi" id="k0"><div class="lbl">Ha completati</div><div class="val">—</div><div class="delta">— su — ha totali</div></div>
+    <div class="kpi" id="k1"><div class="lbl">Costo totale portfolio</div><div class="val">—</div><div class="delta">budget —</div></div>
+    <div class="kpi" id="k2"><div class="lbl">Costo €/ha completato</div><div class="val">—</div><div class="delta">target —</div></div>
+    <div class="kpi" id="k3"><div class="lbl">Giorni fermo totali</div><div class="val">—</div><div class="delta">7 siti attivi</div></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tb on" onclick="showTab(0)">Gantt</button>
+    <button class="tb" onclick="showTab(1)">Avanzamento</button>
+    <button class="tb" onclick="showTab(2)">Costi</button>
+    <button class="tb" onclick="showTab(3)">Efficienza</button>
+    <button class="tb" onclick="showTab(4)">Macchine</button>
+  </div>
+
+  <div class="card">
+
+    <div class="section on" id="s0">
+      <div class="ct">Gantt — previsto vs avanzamento reale per attività</div>
+      <div class="csub">Barre grigie = durata prevista · Barre colorate = avanzamento reale · Rosso = attività in ritardo rispetto al piano</div>
+      <div class="legend">
+        <span class="li"><span class="ls" style="background:#C0DD97"></span>Previsto</span>
+        <span class="li"><span class="ls" style="background:#1F5C2E"></span>In linea</span>
+        <span class="li"><span class="ls" style="background:#E24B4A"></span>In ritardo</span>
+        <span class="li"><span class="ls" style="background:#97C459"></span>Completata</span>
+      </div>
+      <div id="c0wrap" style="position:relative;width:100%;height:420px">
+        <div class="loading-box"><div class="spin"></div><p>Caricamento dati...</p></div>
+      </div>
+    </div>
+
+    <div class="section" id="s1">
+      <div class="ct">Avanzamento attività per sito</div>
+      <div class="csub">Valori in % per attività con avanzamento percentuale · Stato testuale per Progettazione</div>
+      <div class="hm-wrap"><div id="heatmap"><div class="loading-box"><div class="spin"></div><p>Caricamento...</p></div></div></div>
+    </div>
+
+    <div class="section" id="s2">
+      <div class="ct">Costi per sito — composizione e budget</div>
+      <div class="csub">Linea rossa tratteggiata = budget assegnato al sito</div>
+      <div class="legend">
+        <span class="li"><span class="ls" style="background:#378ADD"></span>Ore uomo</span>
+        <span class="li"><span class="ls" style="background:#1D9E75"></span>Macchine</span>
+        <span class="li"><span class="ls" style="background:#EF9F27"></span>Materiali</span>
+        <span class="li"><span class="ls" style="background:#7F77DD"></span>Terzisti</span>
+        <span class="li"><span class="ls" style="background:#D85A30"></span>Gasolio</span>
+        <span class="li"><span class="ls" style="background:transparent;border:2px dashed #E24B4A"></span>Budget</span>
+      </div>
+      <div id="c2wrap" style="position:relative;width:100%;height:320px">
+        <div class="loading-box"><div class="spin"></div><p>Caricamento...</p></div>
+      </div>
+    </div>
+
+    <div class="section" id="s3">
+      <div class="ct">Efficienza siti — €/ha vs % avanzamento</div>
+      <div class="csub">Dimensione bolla = ettari totali del sito · Posizione ideale: in basso a destra (economico + avanzato)</div>
+      <div id="c3wrap" style="position:relative;width:100%;height:360px">
+        <div class="loading-box"><div class="spin"></div><p>Caricamento...</p></div>
+      </div>
+    </div>
+
+    <div class="section" id="s4">
+      <div class="ct">Macchine — giorni presenti vs giorni usate (tutti i siti)</div>
+      <div class="csub">Differenza tra presenti e usate = giorni ferma inutilizzata con costo addebitato</div>
+      <div class="legend">
+        <span class="li"><span class="ls" style="background:#EF9F27"></span>Presenti (tariffa addebitata)</span>
+        <span class="li"><span class="ls" style="background:#1F5C2E"></span>Usate (ha lavorato)</span>
+        <span class="li"><span class="ls" style="background:#E24B4A99"></span>Giorni ferma</span>
+      </div>
+      <div id="c4wrap" style="position:relative;width:100%;height:400px">
+        <div class="loading-box"><div class="spin"></div><p>Caricamento...</p></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── URL configurazione ────────────────────────────────────────────────────────
+let PA_URL = '';
+try { PA_URL = localStorage.getItem('halaesa_dash_url') || ''; } catch(e){}
+
+function toggleCfg(){
+  const p = document.getElementById('cfgPanel');
+  p.classList.toggle('open');
+  if(p.classList.contains('open')) document.getElementById('cfgUrl').value = PA_URL;
+}
+function saveCfgAndLoad(){
+  PA_URL = document.getElementById('cfgUrl').value.trim();
+  try { localStorage.setItem('halaesa_dash_url', PA_URL); } catch(e){}
+  document.getElementById('cfgPanel').classList.remove('open');
+  loadData();
+}
+
+// ── Dati demo fallback ────────────────────────────────────────────────────────
+const DEMO = {
+  siti:["Baglio","Garbinogara","Di Marco","De Marco","Pistavecchia","Orlando","Salamone"],
+  attivita:["Progettazione","Mov. terra","Prep. terreno","Drenaggi","Piantumazione","Imp. irrigaz.","Recinzioni","Opere edili","Viabilità","Scerbatura"],
+  tipi:["status","ha","ha","pct","ha","ha","pct","pct","pct","ha"],
+  consolidamento:[
+    {sito:"Baglio",      ha:80, haC:28,pct:35,cu:42000,cm:28000,cmat:55000,ct:12000,cg:5000, bud:260000,gf:5},
+    {sito:"Garbinogara", ha:40, haC:18,pct:45,cu:18000,cm:12000,cmat:24000,ct:6000, cg:2000, bud:130000,gf:2},
+    {sito:"Di Marco",    ha:60, haC:22,pct:37,cu:28000,cm:18000,cmat:38000,ct:9000, cg:3500, bud:200000,gf:4},
+    {sito:"De Marco",    ha:45, haC:14,pct:31,cu:22000,cm:14000,cmat:28000,ct:7000, cg:3000, bud:150000,gf:3},
+    {sito:"Pistavecchia",ha:50, haC:16,pct:32,cu:24000,cm:15000,cmat:31000,ct:8000, cg:3200, bud:165000,gf:2},
+    {sito:"Orlando",     ha:35, haC:8, pct:23,cu:16000,cm:10000,cmat:20000,ct:5000, cg:2200, bud:115000,gf:1},
+    {sito:"Salamone",    ha:40, haC:6, pct:15,cu:18000,cm:11000,cmat:22000,ct:6500, cg:2500, bud:130000,gf:1},
+  ],
+  avanzamento:[
+    [100,95,80,70,60,45,20],[95,85,75,65,55,40,15],[90,80,70,60,50,35,10],
+    [80,65,60,55,45,30,8],[75,60,55,50,40,25,5],[85,70,65,58,48,32,10],
+    [70,55,50,45,38,22,4],[65,50,45,40,32,18,2],[60,48,42,38,30,16,2],[55,42,38,35,28,14,1],
+  ],
+  gantt:[
+    {att:"Progettazione",   prev:[0,30],  real:[0,30],  status:"done"},
+    {att:"Mov. terra",      prev:[20,60], real:[20,55], status:"ok"},
+    {att:"Prep. terreno",   prev:[40,80], real:[40,72], status:"ok"},
+    {att:"Drenaggi",        prev:[55,90], real:[55,78], status:"warn"},
+    {att:"Piantumazione",   prev:[70,130],real:[70,105],status:"ok"},
+    {att:"Imp. irrigaz.",   prev:[90,150],real:[92,120],status:"warn"},
+    {att:"Recinzioni",      prev:[110,160],real:[115,130],status:"warn"},
+    {att:"Opere edili",     prev:[100,145],real:[103,125],status:"ok"},
+    {att:"Viabilità",       prev:[120,165],real:[122,140],status:"ok"},
+    {att:"Scerbatura",      prev:[60,180], real:[65,145],status:"ok"},
+  ],
+  macchine:[
+    {mac:"Macchina 1",pres:45,usata:38},{mac:"Macchina 2",pres:42,usata:42},
+    {mac:"Macchina 3",pres:38,usata:22},{mac:"Macchina 4",pres:30,usata:28},
+    {mac:"Macchina 5",pres:25,usata:25},{mac:"Macchina 6",pres:20,usata:8},
+    {mac:"Macchina 7",pres:15,usata:14},{mac:"Macchina 8",pres:10,usata:10},
+  ]
+};
+
+// ── Stato app ─────────────────────────────────────────────────────────────────
+let DATA = null;
+let charts = {};
+let curTab = 0;
+
+function setStatus(st, msg){
+  const dot = document.getElementById('statusDot');
+  const lbl = document.getElementById('statusLbl');
+  dot.className = 'status-dot' + (st==='loading'?' loading':st==='error'?' error':'');
+  lbl.textContent = msg;
+}
+
+// ── Trasforma risposta PA in formato interno ─────────────────────────────────
+function transformPA(raw){
+  // raw.costi = array righe Tbl_Dash_Costi
+  // raw.avanzamento = array righe Tbl_Dash_Avanzamento
+  // raw.gantt = array oggetti {attivita, dataInizioPrev, dataFinePrev, avanzamento}
+  // raw.macchine = array {macchina, presenti, usate}
+  // raw.piano = array {attivita, sito, haPrevisti, dataInizioPrev, dataFinePrev, budget}
+  const costi = raw.costi || [];
+  const avz   = raw.avanzamento || [];
+
+  const sitiSet = [...new Set(costi.map(r=>r.Sito).filter(Boolean))];
+  const SITI = sitiSet.length ? sitiSet : DEMO.siti;
+
+  // Consolidamento per sito
+  const consolidamento = SITI.map(sito=>{
+    const rc = costi.filter(r=>r.Sito===sito);
+    const cu   = rc.reduce((s,r)=>s+(+r['Costo Ore Uomo (€)']||0),0);
+    const cm   = rc.reduce((s,r)=>s+(+r['Costo Macchine (€)']||0),0);
+    const cmat = rc.reduce((s,r)=>s+(+r['Costo Materiali (€)']||0),0);
+    const ct   = rc.reduce((s,r)=>s+(+r['Costo Terzisti (€)']||0),0);
+    const cg   = rc.reduce((s,r)=>s+(+r['Costo Gasolio (€)']||0),0);
+    const gf   = rc.reduce((s,r)=>s+(+r['Giorni Fermo']||0),0);
+    const mp   = rc.reduce((s,r)=>s+(+r['Mac. Presenti']||0),0);
+
+    const piani = (raw.piano||[]).filter(p=>p.Sito===sito);
+    const bud   = piani.reduce((s,p)=>s+(+p['Budget (€)']||0),0);
+    const haP   = piani.reduce((s,p)=>s+(+p['Ha Previsti']||0),0)||50;
+
+    // Ha completati dal RIEPILOGO (usa % × ha previsti se non disponibile)
+    const haAvz = avz.filter(r=>r.Sito===sito&&r.Tipo==='ha');
+    const maxPct = haAvz.length ? Math.max(...haAvz.map(r=>+r['Stato/% Avanz.']||0)) : 0;
+    const haC = Math.round(haP * maxPct / 100 * 10)/10;
+    const pct = Math.round(maxPct);
+
+    return {sito:sito.split(' ')[0], sitoFull:sito, ha:haP, haC, pct, cu, cm, cmat, ct, cg, bud, gf, mp};
+  });
+
+  // Matrice avanzamento [attivita][sito]
+  const ATTIVITA_ALL = [...new Set(avz.map(r=>r.Attività).filter(Boolean))];
+  const TIPI_MAP = {};
+  avz.forEach(r=>{ if(r.Attività&&r.Tipo) TIPI_MAP[r.Attività]=r.Tipo; });
+  const attivita = ATTIVITA_ALL.length ? ATTIVITA_ALL : DEMO.attivita;
+  const tipi = attivita.map(a=>TIPI_MAP[a]||'pct');
+  const matrice = attivita.map(att=>
+    SITI.map(sito=>{
+      const rows = avz.filter(r=>r.Attività===att&&r.Sito===sito);
+      if(!rows.length) return 0;
+      const v = +rows[rows.length-1]['Stato/% Avanz.']||0;
+      return tipi[attivita.indexOf(att)]==='status' ? v : Math.round(v);
+    })
+  );
+
+  // Gantt — costruito da Tbl_Piano_Previsionale
+  const piano = raw.piano || [];
+  const oggi = new Date();
+  const gantt = piano.length ? [...new Set(piano.map(r=>r['Attività']||r.Attività).filter(Boolean))].map(att=>{
+    const rows = piano.filter(r=>(r['Attività']||r.Attività)===att);
+    // Calcola date min/max su tutti i siti
+    const starts = rows.map(r=>r['Data Inizio\nPrevista']||r['Data Inizio Prevista']).filter(Boolean).map(d=>new Date(d));
+    const ends   = rows.map(r=>r['Data Fine\nPrevista']||r['Data Fine Prevista']).filter(Boolean).map(d=>new Date(d));
+    if(!starts.length||!ends.length) return null;
+    const t0 = new Date(Math.min(...starts));
+    const minStart = new Date(Math.min(...starts));
+    const maxEnd   = new Date(Math.max(...ends));
+    const prevStart = Math.round((minStart-t0)/(1000*60*60*24));
+    const prevEnd   = Math.round((maxEnd-t0)/(1000*60*60*24));
+    const realEnd   = Math.min(prevEnd, Math.round((oggi-t0)/(1000*60*60*24)));
+    const status = oggi > maxEnd ? 'done' : realEnd >= prevEnd*0.9 ? 'ok' : realEnd < prevEnd*0.5 ? 'warn' : 'ok';
+    return {att, prev:[0, prevEnd||30], real:[0, Math.max(0,realEnd)||0], status};
+  }).filter(Boolean) : DEMO.gantt;
+
+  // Macchine
+  const macchine = (raw.macchine||[]).length ? raw.macchine.map(m=>({
+    mac: m.macchina||m.Macchina,
+    pres: +m.presenti||+m.Presenti||0,
+    usata: +m.usate||+m.Usate||0
+  })) : DEMO.macchine;
+
+  return {siti:SITI.map(s=>s.split(' ')[0]), sitiF:SITI, attivita, tipi, consolidamento, avanzamento:matrice, gantt, macchine};
+}
+
+// ── Load data ─────────────────────────────────────────────────────────────────
+async function loadData(){
+  setStatus('loading','Aggiornamento...');
+  document.getElementById('lastUpdate').textContent = 'Caricamento in corso...';
+
+  if(!PA_URL){
+    DATA = DEMO;
+    setStatus('ok','Dati demo (configura URL per dati reali)');
+    document.getElementById('lastUpdate').textContent = 'Demo — nessun URL configurato';
+    renderAll();
+    return;
+  }
+
+  try {
+    const res = await fetch(PA_URL, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const raw = await res.json();
+    DATA = transformPA(raw);
+    setStatus('ok','Aggiornato da SharePoint');
+    document.getElementById('lastUpdate').textContent =
+      'Ultimo aggiornamento: '+new Date().toLocaleString('it-IT');
+    renderAll();
+  } catch(e){
+    DATA = DEMO;
+    setStatus('error','Errore connessione — dati demo');
+    document.getElementById('lastUpdate').textContent = 'Errore: '+e.message+' — mostrando dati demo';
+    renderAll();
+  }
+}
+
+// ── KPI ───────────────────────────────────────────────────────────────────────
+function renderKPI(){
+  const c = DATA.consolidamento||DEMO.consolidamento;
+  const haTot  = c.reduce((s,r)=>s+r.ha,0);
+  const haComp = c.reduce((s,r)=>s+r.haC,0);
+  const costoTot = c.reduce((s,r)=>s+r.cu+r.cm+r.cmat+r.ct+r.cg,0);
+  const bud = c.reduce((s,r)=>s+r.bud,0);
+  const gf  = c.reduce((s,r)=>s+r.gf,0);
+  const cxha = haComp>0?Math.round(costoTot/haComp):0;
+  const scost = costoTot - bud;
+
+  function setKPI(id,val,delta,cls){
+    const el = document.getElementById(id);
+    el.querySelector('.val').textContent = val;
+    el.querySelector('.delta').textContent = delta;
+    if(cls) el.className = 'kpi '+cls;
+  }
+  setKPI('k0', Math.round(haComp)+' ha', 'su '+Math.round(haTot)+' ha totali · '+Math.round(haComp/haTot*100)+'%', haComp/haTot>0.4?'ok':'');
+  setKPI('k1', fmtE(costoTot), 'budget '+fmtE(bud)+(scost>0?' — supera di '+fmtE(scost):''), scost>0?'warn':'');
+  setKPI('k2', '€'+fmt(cxha), 'target da compilare nel Dashboard', '');
+  setKPI('k3', gf+' gg', '7 siti attivi', gf>15?'warn':'');
+}
+
+function fmt(n){return Math.round(n).toLocaleString('it-IT');}
+function fmtE(n){return '€'+fmt(n);}
+
+// ── Render dispatcher ─────────────────────────────────────────────────────────
+function renderAll(){
+  renderKPI();
+  destroyCharts();
+  renderTab(curTab);
+}
+function destroyCharts(){
+  Object.values(charts).forEach(c=>{ if(c&&c.destroy) c.destroy(); });
+  charts={};
+}
+function showTab(i){
+  curTab=i;
+  document.querySelectorAll('.tb').forEach((b,j)=>b.classList.toggle('on',i===j));
+  document.querySelectorAll('.section').forEach((s,j)=>s.classList.toggle('on',i===j));
+  renderTab(i);
+}
+function renderTab(i){
+  if(i===0) renderGantt();
+  if(i===1) renderHeatmap();
+  if(i===2) renderCosti();
+  if(i===3) renderBubble();
+  if(i===4) renderMacchine();
+}
+
+// ── GANTT ─────────────────────────────────────────────────────────────────────
+function renderGantt(){
+  const wrap = document.getElementById('c0wrap');
+  wrap.innerHTML = '<canvas id="c0"></canvas>';
+  const g = (DATA.gantt||DEMO.gantt);
+  const colMap = {done:'#97C459',ok:'#1F5C2E',warn:'#E24B4A'};
+  charts.c0 = new Chart(document.getElementById('c0'),{
+    type:'bar',
+    data:{
+      labels:g.map(d=>d.att),
+      datasets:[
+        {data:g.map(d=>d.prev[0]),backgroundColor:'transparent',stack:'p',borderWidth:0,label:'_start_p'},
+        {data:g.map(d=>d.prev[1]-d.prev[0]),backgroundColor:'#C0DD97',stack:'p',borderRadius:3,label:'Previsto'},
+        {data:g.map(d=>d.real[0]),backgroundColor:'transparent',stack:'r',borderWidth:0,label:'_start_r'},
+        {data:g.map(d=>d.real[1]-d.real[0]),backgroundColor:g.map(d=>colMap[d.status]||'#1F5C2E'),stack:'r',borderRadius:3,label:'Reale'},
+      ]
+    },
+    options:{
+      indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>{
+          if(ctx.dataset.label==='Previsto') return ' Previsto: '+g[ctx.dataIndex].prev[0]+'→'+g[ctx.dataIndex].prev[1]+' gg';
+          if(ctx.dataset.label==='Reale') return ' Reale: '+g[ctx.dataIndex].real[0]+'→'+g[ctx.dataIndex].real[1]+' gg';
+          return null;
+        }}}
+      },
+      scales:{
+        x:{stacked:true,title:{display:true,text:'giorni dall\'avvio',font:{size:11}},ticks:{font:{size:11}}},
+        y:{stacked:true,ticks:{font:{size:11}}}
+      }
+    }
+  });
+}
+
+// ── HEATMAP ───────────────────────────────────────────────────────────────────
+function renderHeatmap(){
+  const el = document.getElementById('heatmap');
+  const att = DATA.attivita||DEMO.attivita;
+  const siti = DATA.siti||DEMO.siti;
+  const tipi = DATA.tipi||DEMO.tipi;
+  const mat  = DATA.avanzamento||DEMO.avanzamento;
+
+  let html = '<table class="hm-table"><tr><th>Attività</th>';
+  siti.forEach(s=>html+=`<th>${s}</th>`);
+  html+='</tr>';
+
+  att.forEach((a,i)=>{
+    html+=`<tr><td>${a}</td>`;
+    (mat[i]||[]).forEach(v=>{
+      const pct=Math.round(v);
+      let bg,tx,lbl;
+      if(tipi[i]==='status'){
+        lbl=pct>=80?'Compl.':pct>=40?'In corso':pct>0?'Iniziata':'N/I';
+        bg=pct>=80?'#1F5C2E':pct>=40?'#639922':pct>0?'#C0DD97':'#f5f5f5';
+        tx=pct>=40?'#fff':'#3B6D11';
+      } else {
+        lbl=pct+'%';
+        bg=pct>=80?'#1F5C2E':pct>=50?'#639922':pct>=20?'#C0DD97':pct>0?'#EAF3DE':'#f5f5f5';
+        tx=pct>=50?'#fff':pct>=20?'#27500A':'#999';
+      }
+      html+=`<td style="background:${bg};color:${tx}">${lbl}</td>`;
+    });
+    html+='</tr>';
+  });
+  html+='</table>';
+  el.innerHTML=html;
+}
+
+// ── COSTI ─────────────────────────────────────────────────────────────────────
+function renderCosti(){
+  const wrap = document.getElementById('c2wrap');
+  wrap.innerHTML = '<canvas id="c2"></canvas>';
+  const d = DATA.consolidamento||DEMO.consolidamento;
+  charts.c2 = new Chart(document.getElementById('c2'),{
+    type:'bar',
+    data:{
+      labels:d.map(x=>x.sito),
+      datasets:[
+        {label:'Ore uomo',data:d.map(x=>x.cu),backgroundColor:'#378ADD',stack:'c'},
+        {label:'Macchine',data:d.map(x=>x.cm),backgroundColor:'#1D9E75',stack:'c'},
+        {label:'Materiali',data:d.map(x=>x.cmat),backgroundColor:'#EF9F27',stack:'c'},
+        {label:'Terzisti',data:d.map(x=>x.ct),backgroundColor:'#7F77DD',stack:'c'},
+        {label:'Gasolio',data:d.map(x=>x.cg),backgroundColor:'#D85A30',stack:'c'},
+        {type:'line',label:'Budget',data:d.map(x=>x.bud),
+          borderColor:'#E24B4A',borderWidth:2,borderDash:[5,4],
+          pointRadius:5,pointBackgroundColor:'#E24B4A',fill:false,stack:undefined,order:0},
+      ]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>'  '+ctx.dataset.label+': '+fmtE(ctx.raw)}}},
+      scales:{
+        x:{stacked:true,ticks:{font:{size:11}}},
+        y:{stacked:true,ticks:{font:{size:11},callback:v=>'€'+fmt(v/1000)+'k'}}
+      }
+    }
+  });
+}
+
+// ── BUBBLE ────────────────────────────────────────────────────────────────────
+function renderBubble(){
+  const wrap = document.getElementById('c3wrap');
+  wrap.innerHTML = '<canvas id="c3"></canvas>';
+  const d = DATA.consolidamento||DEMO.consolidamento;
+  const COLS=['#378ADD','#1D9E75','#EF9F27','#7F77DD','#D85A30','#E24B4A','#1F5C2E'];
+  const ds = d.map((x,i)=>({
+    label:x.sito,
+    data:[{x:Math.round(x.pct),y:Math.round(x.haC>0?(x.cu+x.cm+x.cmat+x.ct+x.cg)/x.haC:0),r:Math.max(8,Math.round(x.ha/6))}],
+    backgroundColor:COLS[i]+'CC'
+  }));
+  charts.c3 = new Chart(document.getElementById('c3'),{
+    type:'bubble',data:{datasets:ds},
+    options:{
+      responsive:true,maintainAspectRatio:false,layout:{padding:24},
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>` ${ctx.dataset.label}  ${ctx.raw.x}% avanz. · €${fmt(ctx.raw.y)}/ha`}}},
+      scales:{
+        x:{title:{display:true,text:'% avanzamento',font:{size:11}},min:0,max:60,ticks:{font:{size:11}}},
+        y:{title:{display:true,text:'€/ha completato',font:{size:11}},min:0,max:7000,ticks:{font:{size:11},callback:v=>'€'+fmt(v)}}
+      }
+    }
+  });
+}
+
+// ── MACCHINE ──────────────────────────────────────────────────────────────────
+function renderMacchine(){
+  const wrap = document.getElementById('c4wrap');
+  wrap.innerHTML = '<canvas id="c4"></canvas>';
+  const mac = DATA.macchine||DEMO.macchine;
+  const ferme = mac.map(m=>Math.max(0,m.pres-m.usata));
+  charts.c4 = new Chart(document.getElementById('c4'),{
+    type:'bar',
+    data:{
+      labels:mac.map(m=>m.mac),
+      datasets:[
+        {label:'Presenti',data:mac.map(m=>m.pres),backgroundColor:'#EF9F27',borderRadius:3},
+        {label:'Usate',data:mac.map(m=>m.usata),backgroundColor:'#1F5C2E',borderRadius:3},
+        {label:'Ferme',data:ferme,backgroundColor:'#E24B4A80',borderRadius:3},
+      ]
+    },
+    options:{
+      indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>{
+          const i=ctx.dataIndex;
+          if(ctx.datasetIndex===0) return ` Presenti: ${mac[i].pres} gg`;
+          if(ctx.datasetIndex===1) return ` Usate: ${mac[i].usata} gg`;
+          return ` Ferme inutilizzate: ${ferme[i]} gg`;
+        }}}
+      },
+      scales:{
+        x:{ticks:{font:{size:11},callback:v=>v+' gg'}},
+        y:{ticks:{font:{size:11}}}
+      }
+    }
+  });
+}
+
+loadData();
+setInterval(loadData, 5*60*1000);
+</script>
+</body>
+</html>
