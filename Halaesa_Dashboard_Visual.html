@@ -201,7 +201,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
 <script>
 // ── URL configurazione ────────────────────────────────────────────────────────
 let PA_URL = 'https://default604dd46b04ae4e378cf4325163dfee.3a.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/504be64566aa4275824b159cc3661e33/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=MbfY6B7FD5mZp942tso3QiLeniCfWMVVsjG5MSnsR44';
-try { PA_URL = localStorage.getItem('halaesa_dash_url') || ''; } catch(e){}
+try { const _saved = localStorage.getItem('halaesa_dash_url'); if(_saved) PA_URL = _saved; } catch(e){}
 
 function toggleCfg(){
   const p = document.getElementById('cfgPanel');
@@ -314,93 +314,99 @@ function parseDate(v){
 }
 
 function transformPA(raw){
-  // raw.costi = array righe Tbl_Dash_Costi
-  // raw.avanzamento = array righe Tbl_Dash_Avanzamento
-  // raw.gantt = array oggetti {attivita, dataInizioPrev, dataFinePrev, avanzamento}
-  // raw.macchine = array {macchina, presenti, usate}
-  // raw.piano = array {attivita, sito, haPrevisti, dataInizioPrev, dataFinePrev, budget}
-  const costi = raw.costi || [];
-  const avz   = raw.avanzamento || [];
-
-  const sitiSet = [...new Set(costi.map(r=>r.Sito).filter(Boolean))];
-  const SITI = sitiSet.length ? sitiSet : DEMO.siti;
-
-  // Consolidamento per sito
-  const consolidamento = SITI.map(sito=>{
-    const rc = costi.filter(r=>r.Sito===sito);
-    const cu   = rc.reduce((s,r)=>s+(+r['Costo Ore Uomo (€)']||0),0);
-    const cm   = rc.reduce((s,r)=>s+(+r['Costo Macchine (€)']||0),0);
-    const cmat = rc.reduce((s,r)=>s+(+r['Costo Materiali (€)']||0),0);
-    const ct   = rc.reduce((s,r)=>s+(+r['Costo Terzisti (€)']||0),0);
-    const cg   = rc.reduce((s,r)=>s+(+r['Costo Gasolio (€)']||0),0);
-    const gf   = rc.reduce((s,r)=>s+(+r['Giorni Fermo']||0),0);
-    const mp   = rc.reduce((s,r)=>s+(+r['Mac. Presenti']||0),0);
-
-    const piani = (raw.piano||[]).filter(p=>p.Sito===sito);
-    const bud   = piani.reduce((s,p)=>s+(+p['Budget (€)']||0),0);
-    const haP   = piani.reduce((s,p)=>s+(+p['Ha Previsti']||0),0)||50;
-
-    // Ha completati dal RIEPILOGO (usa % × ha previsti se non disponibile)
-    const haAvz = avz.filter(r=>r.Sito===sito&&r.Tipo==='ha');
-    const maxPct = haAvz.length ? Math.max(...haAvz.map(r=>+r['Stato/% Avanz.']||0)) : 0;
-    const haC = Math.round(haP * maxPct / 100 * 10)/10;
-    const pct = Math.round(maxPct);
-
-    return {sito:sito.split(' ')[0], sitoFull:sito, ha:haP, haC, pct, cu, cm, cmat, ct, cg, bud, gf, mp};
-  });
-
-  // Matrice avanzamento [attivita][sito]
-  const ATTIVITA_ALL = [...new Set(avz.map(r=>r.Attività).filter(Boolean))];
-  const TIPI_MAP = {};
-  avz.forEach(r=>{ if(r.Attività&&r.Tipo) TIPI_MAP[r.Attività]=r.Tipo; });
-  const attivita = ATTIVITA_ALL.length ? ATTIVITA_ALL : DEMO.attivita;
-  const tipi = attivita.map(a=>TIPI_MAP[a]||'pct');
-  const matrice = attivita.map(att=>
-    SITI.map(sito=>{
-      const rows = avz.filter(r=>r.Attività===att&&r.Sito===sito);
-      if(!rows.length) return 0;
-      const v = +rows[rows.length-1]['Stato/% Avanz.']||0;
-      return tipi[attivita.indexOf(att)]==='status' ? v : Math.round(v);
-    })
-  );
-
-  // Gantt — costruito da Tbl_Piano_Previsionale
-  const piano = raw.piano || [];
-  const oggi = new Date();
-  const gantt = piano.length ? [...new Set(piano.map(r=>r['Attività']||r.Attività).filter(Boolean))].map(att=>{
-    const rows = piano.filter(r=>(r['Attività']||r.Attività)===att);
-    // Calcola date min/max su tutti i siti
-    const starts = rows.map(r=>r['Data Inizio\nPrevista']||r['Data Inizio Prevista']).filter(Boolean).map(d=>new Date(d));
-    const ends   = rows.map(r=>r['Data Fine\nPrevista']||r['Data Fine Prevista']).filter(Boolean).map(d=>new Date(d));
-    if(!starts.length||!ends.length) return null;
-    const t0 = new Date(Math.min(...starts));
-    const minStart = new Date(Math.min(...starts));
-    const maxEnd   = new Date(Math.max(...ends));
-    const prevStart = Math.round((minStart-t0)/(1000*60*60*24));
-    const prevEnd   = Math.round((maxEnd-t0)/(1000*60*60*24));
-    const realEnd   = Math.min(prevEnd, Math.round((oggi-t0)/(1000*60*60*24)));
-    const status = oggi > maxEnd ? 'done' : realEnd >= prevEnd*0.9 ? 'ok' : realEnd < prevEnd*0.5 ? 'warn' : 'ok';
-    return {att, prev:[0, prevEnd||30], real:[0, Math.max(0,realEnd)||0], status};
-  }).filter(Boolean) : DEMO.gantt;
-
-  // Macchine — aggrega da raw.macchine (Tbl_Dash_Macchine: una riga per macchina per invio)
+  // NUOVA ARCHITETTURA: legge tabelle aggregate a dimensione fissa
+  // raw.siti      = Tbl_Exp_Siti (7 righe, una per sito, già aggregate)
+  // raw.avanz     = Tbl_Exp_Avanz (10 righe attività × colonne sito)
+  // raw.macchine  = Tbl_Exp_Macchine (12 righe macchina × colonne sito_Pres/sito_Usata)
+  // raw.piano     = Tbl_Piano_Previsionale (date previsionali per Gantt)
+  const sitiRaw = raw.siti || [];
+  const avanzRaw = raw.avanz || [];
   const macRaw = raw.macchine || [];
-  let macchine;
-  if(macRaw.length){
-    const macMap = {};
-    macRaw.forEach(r=>{
-      const nome = r['Macchina']||r.Macchina;
-      if(!nome) return;
-      if(!macMap[nome]) macMap[nome]={mac:nome,pres:0,usata:0};
-      macMap[nome].pres  += (+r['Presente']||+r.Presente||0);
-      macMap[nome].usata += (+r['Usata']||+r.Usata||0);
+  const piano = raw.piano || [];
+
+  const n = v => { const x = parseFloat(v); return isNaN(x)?0:x; };
+
+  // ── Consolidamento: una riga per sito (già aggregata) ──
+  const SITI_FULL = sitiRaw.map(r => r.Sito || r.sito).filter(Boolean);
+  const SITI = SITI_FULL.length ? SITI_FULL : DEMO.siti.map(s=>s);
+
+  const consolidamento = sitiRaw.length ? sitiRaw.map(r => {
+    const sitoFull = r.Sito || r.sito || '';
+    return {
+      sito: sitoFull.split(' ')[0],
+      sitoFull,
+      ha:   n(r.HaTotali),
+      haC:  n(r.HaComplet),
+      pct:  Math.round(n(r.Pct) * (n(r.Pct)<=1 ? 100 : 1)),  // gestisce sia 0-1 che 0-100
+      cu:   n(r.OreUomo),
+      cm:   n(r.Macchine),
+      cmat: n(r.Materiali),
+      ct:   n(r.Terzisti),
+      cg:   n(r.Gasolio),
+      bud:  n(r.Budget),
+      gf:   n(r.GiorniFermo),
+      mp:   n(r.MacPresenti)
+    };
+  }) : DEMO.consolidamento;
+
+  // ── Avanzamento matrice: 10 attività × siti ──
+  const attivita = avanzRaw.length ? avanzRaw.map(r => r.Attivita || r.Attività) : DEMO.attivita;
+  const tipi     = avanzRaw.length ? avanzRaw.map(r => r.Tipo || 'pct') : DEMO.tipi;
+  const sitiShort = consolidamento.map(c => c.sito);
+  const matrice = avanzRaw.length ? avanzRaw.map(r => {
+    return sitiShort.map(sn => {
+      // cerca la colonna che inizia con il nome corto del sito
+      const key = Object.keys(r).find(k => k === sn || k.split(' ')[0] === sn);
+      return key ? n(r[key]) : 0;
     });
-    macchine = Object.values(macMap).sort((a,b)=>b.pres-a.pres);
+  }) : DEMO.avanzamento;
+
+  // ── Gantt: da piano (date) + avanzamento (% per stato) ──
+  const oggi = new Date();
+  function gv2(r,a,b){ return r[a]!=null?r[a]:(r[b]!=null?r[b]:null); }
+  let allStarts = piano.map(r=>parseDate(gv2(r,'Data Inizio Prevista','Data Inizio\nPrevista'))).filter(Boolean);
+  const t0 = allStarts.length ? new Date(Math.min(...allStarts)) : oggi;
+  const gantt = piano.length ? piano.map(r=>{
+    const sito = gv2(r,'Sito','Sito');
+    const att  = gv2(r,'Attività','Attività');
+    const ds = parseDate(gv2(r,'Data Inizio Prevista','Data Inizio\nPrevista'));
+    const de = parseDate(gv2(r,'Data Fine Prevista','Data Fine\nPrevista'));
+    if(!sito||!att||!ds||!de) return null;
+    const gg=(d)=>Math.round((d-t0)/(1000*60*60*24));
+    const prevStart=gg(ds), prevEnd=gg(de);
+    const realEnd=Math.min(prevEnd, Math.max(prevStart, gg(oggi)));
+    let status;
+    if(oggi>de) status='done';
+    else if(oggi<ds) status='ok';
+    else { const atteso=(gg(oggi)-prevStart)/(prevEnd-prevStart||1); status=atteso>0.5?'warn':'ok'; }
+    return {sito, att, label:sito.split(' ')[0]+' · '+att, prev:[prevStart,prevEnd], real:[prevStart,Math.max(prevStart,realEnd)], status};
+  }).filter(Boolean).sort((a,b)=> a.sito===b.sito ? a.prev[0]-b.prev[0] : a.sito.localeCompare(b.sito)) : DEMO.gantt;
+
+  // ── Macchine: da Tbl_Exp_Macchine (12 righe × colonne sito_Pres/sito_Usata) ──
+  let macchine, macFlat=[];
+  if(macRaw.length){
+    macchine = macRaw.map(r=>{
+      const nome = r.Macchina || r.macchina;
+      let pres=0, usata=0;
+      Object.keys(r).forEach(k=>{
+        if(k.endsWith('_Pres')) pres += n(r[k]);
+        if(k.endsWith('_Usata')) usata += n(r[k]);
+      });
+      // costruisci anche il dettaglio per sito per il filtro
+      consolidamento.forEach(c=>{
+        const kp = c.sito+'_Pres', ku = c.sito+'_Usata';
+        if(r[kp]!=null||r[ku]!=null){
+          macFlat.push({Macchina:nome, Sito:c.sitoFull, Presente:n(r[kp]), Usata:n(r[ku])});
+        }
+      });
+      return {mac:nome, pres, usata};
+    }).filter(m=>m.mac).sort((a,b)=>b.pres-a.pres);
   } else {
     macchine = DEMO.macchine;
   }
 
-  return {siti:SITI.map(s=>s.split(' ')[0]), sitiF:SITI, attivita, tipi, consolidamento, avanzamento:matrice, gantt, macchine, macRaw};
+  return {siti:consolidamento.map(c=>c.sito), sitiF:consolidamento.map(c=>c.sitoFull),
+          attivita, tipi, consolidamento, avanzamento:matrice, gantt, macchine, macRaw:macFlat};
 }
 
 // ── Load data ─────────────────────────────────────────────────────────────────
