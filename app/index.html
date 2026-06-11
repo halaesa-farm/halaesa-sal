@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Halaesa — Controllo OS</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+:root{
+  --forest:#1F5C2E; --forest-d:#16441F; --moss:#6FA84A; --lime:#C6DFA3;
+  --gold:#E8A33D; --paper:#FAFAF7; --ink:#1A2418; --mut:#6B7565;
+  --line:#E2E5DC; --white:#FFFFFF; --red:#C0392B;
+  --r:12px; --r-s:8px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:var(--paper);color:var(--ink);font-size:16px;line-height:1.45;
+  padding-bottom:84px}
+h1,h2,h3{line-height:1.2}
+button{font-family:inherit;cursor:pointer;border:none}
+input,select,textarea{font-family:inherit;font-size:16px;width:100%;
+  padding:12px;border:1.5px solid var(--line);border-radius:var(--r-s);
+  background:var(--white);color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--moss);border-color:var(--moss)}
+label{display:block;font-size:13px;font-weight:600;color:var(--mut);
+  text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.req::after{content:" •";color:var(--gold);font-weight:900}
+
+/* ---------- struttura ---------- */
+.hdr{background:var(--forest);color:var(--white);padding:14px 16px;
+  display:flex;align-items:center;justify-content:space-between;
+  position:sticky;top:0;z-index:50}
+.hdr .brand{font-weight:800;letter-spacing:.02em;font-size:17px}
+.hdr .brand small{display:block;font-weight:500;font-size:11px;opacity:.75;letter-spacing:.08em;text-transform:uppercase}
+.hdr .who{text-align:right;font-size:12px;opacity:.9}
+.hdr .who b{display:block;font-size:13px}
+.wrap{max-width:680px;margin:0 auto;padding:16px}
+.card{background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+  padding:16px;margin-bottom:14px}
+.card h2{font-size:15px;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--forest);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.card h2 .n{background:var(--lime);color:var(--forest-d);width:24px;height:24px;
+  border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:800}
+.field{margin-bottom:14px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.muted{color:var(--mut);font-size:13px}
+.btn{display:block;width:100%;padding:15px;border-radius:var(--r-s);
+  font-size:16px;font-weight:700;text-align:center}
+.btn-p{background:var(--forest);color:var(--white)}
+.btn-p:active{background:var(--forest-d)}
+.btn-g{background:var(--lime);color:var(--forest-d)}
+.btn-o{background:var(--white);color:var(--forest);border:1.5px solid var(--forest)}
+.btn-sm{width:auto;padding:8px 14px;font-size:13px;border-radius:7px}
+.btn[disabled]{opacity:.5}
+
+/* ---------- fasce discrete (elemento firma) ---------- */
+.fasce{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.fascia{padding:13px 2px;border-radius:var(--r-s);border:1.5px solid var(--line);
+  background:var(--white);font-weight:700;font-size:13px;text-align:center;
+  color:var(--mut);transition:all .12s}
+.fascia small{display:block;font-weight:500;font-size:10px;margin-top:1px}
+.fascia.on{background:var(--forest);border-color:var(--forest);color:var(--white)}
+.fascia.zero.on{background:var(--mut);border-color:var(--mut)}
+
+/* ---------- liste dinamiche ---------- */
+.dyn{border-top:1px dashed var(--line);padding-top:10px;margin-top:10px}
+.dyn-row{display:grid;gap:8px;margin-bottom:10px;align-items:end}
+.x{background:none;color:var(--red);font-size:20px;font-weight:800;padding:0 8px}
+.add{background:none;color:var(--moss);font-weight:700;font-size:14px;padding:6px 0}
+
+/* ---------- checkbox grandi (macchine) ---------- */
+.chip{display:flex;align-items:center;gap:8px;padding:10px;border:1.5px solid var(--line);
+  border-radius:var(--r-s);background:var(--white);font-size:14px;font-weight:600}
+.chip input{width:22px;height:22px;accent-color:var(--forest)}
+.chip.gold input{accent-color:var(--gold)}
+
+/* ---------- tab bar ---------- */
+.tabs{position:fixed;bottom:0;left:0;right:0;background:var(--white);
+  border-top:1px solid var(--line);display:flex;z-index:60}
+.tab{flex:1;padding:10px 4px 12px;text-align:center;font-size:11px;font-weight:700;
+  color:var(--mut);background:none;text-transform:uppercase;letter-spacing:.03em}
+.tab .ic{display:block;font-size:20px;margin-bottom:2px}
+.tab.on{color:var(--forest)}
+.tab.on .ic{transform:scale(1.1)}
+
+/* ---------- viste / dashboard ---------- */
+.kpi{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+.kpi .k{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:12px}
+.kpi .k b{font-size:22px;color:var(--forest);display:block}
+.kpi .k span{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+.bar{height:10px;background:var(--line);border-radius:5px;overflow:hidden;margin:6px 0}
+.bar i{display:block;height:100%;background:var(--moss);border-radius:5px}
+.bar i.over{background:var(--red)}
+.att-row{padding:12px 0;border-bottom:1px solid var(--line)}
+.att-row:last-child{border:none}
+.att-row .t{display:flex;justify-content:space-between;font-weight:700;font-size:14px}
+.att-row .s{display:flex;justify-content:space-between;font-size:12px;color:var(--mut)}
+.pill{font-size:11px;font-weight:800;padding:2px 8px;border-radius:99px}
+.pill.ok{background:var(--lime);color:var(--forest-d)}
+.pill.late{background:#FDEBD0;color:#9A6B1F}
+.pill.bad{background:#FADBD8;color:var(--red)}
+table.grid{width:100%;border-collapse:collapse;font-size:12px}
+table.grid th{background:var(--forest);color:var(--white);padding:7px 5px;text-align:right;font-weight:700}
+table.grid th:first-child{text-align:left}
+table.grid td{padding:7px 5px;border-bottom:1px solid var(--line);text-align:right}
+table.grid td:first-child{text-align:left;font-weight:600}
+.scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+/* ---------- login ---------- */
+.login{min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(160deg,var(--forest) 0%,var(--forest-d) 100%);padding:20px}
+.login .box{background:var(--white);border-radius:16px;padding:28px 24px;width:100%;max-width:380px}
+.login .logo{text-align:center;margin-bottom:22px}
+.login .logo b{font-size:24px;color:var(--forest);letter-spacing:.01em}
+.login .logo span{display:block;font-size:11px;color:var(--mut);
+  text-transform:uppercase;letter-spacing:.14em;margin-top:2px}
+.err{background:#FADBD8;color:var(--red);padding:10px;border-radius:var(--r-s);
+  font-size:13px;margin-bottom:12px;display:none}
+.toast{position:fixed;top:70px;left:50%;transform:translateX(-50%);
+  background:var(--forest-d);color:var(--white);padding:12px 22px;border-radius:99px;
+  font-weight:700;font-size:14px;z-index:99;box-shadow:0 4px 16px rgba(0,0,0,.25);
+  opacity:0;transition:opacity .25s;pointer-events:none}
+.toast.show{opacity:1}
+.hide{display:none!important}
+.banner{background:var(--gold);color:#5B3D0E;padding:10px 14px;border-radius:var(--r-s);
+  font-size:13px;font-weight:600;margin-bottom:14px}
+@media(min-width:700px){.fascia{font-size:14px}.dyn-row{gap:10px}}
+</style>
+</head>
+<body>
+
+<!-- ======================= LOGIN ======================= -->
+<div id="v-login" class="login">
+  <div class="box">
+    <div class="logo"><b>HALAESA</b><span>Controllo Operazioni Straordinarie</span></div>
+    <div class="err" id="login-err"></div>
+    <div class="field"><label>Email</label><input type="email" id="l-email" autocomplete="username"></div>
+    <div class="field"><label>Password</label><input type="password" id="l-pass" autocomplete="current-password"></div>
+    <button class="btn btn-p" id="l-go">Entra</button>
+    <p class="muted" style="text-align:center;margin-top:14px">Accesso riservato. Per credenziali contattare la direzione.</p>
+  </div>
+</div>
+
+<!-- ======================= APP ======================= -->
+<div id="v-app" class="hide">
+  <div class="hdr">
+    <div class="brand">HALAESA<small>Controllo OS</small></div>
+    <div class="who"><b id="who-nome"></b><span id="who-ruolo"></span> · <a href="#" id="logout" style="color:var(--lime)">esci</a></div>
+  </div>
+  <div class="wrap">
+    <div id="pane-compila"></div>
+    <div id="pane-gasolio" class="hide"></div>
+    <div id="pane-sito" class="hide"></div>
+    <div id="pane-dash" class="hide"></div>
+    <div id="pane-setup" class="hide"></div>
+  </div>
+  <nav class="tabs" id="tabs"></nav>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================== CONFIG — da compilare al setup ================== */
+const SUPABASE_URL = "https://urzmmnqwqvsltnepajeb.supabase.co";        // Settings > API > Project URL
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVyem1tbnF3cXZzbHRuZXBhamViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNjA2OTIsImV4cCI6MjA5NjczNjY5Mn0.y43iNoYikOiw3qaufjf9ltGPHsabeXcvovoDJwum2xU";   // Settings > API > anon public
+/* ===================================================================== */
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = t => String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const eur = n => (n??0).toLocaleString("it-IT",{maximumFractionDigits:0})+" €";
+const oggi = () => new Date().toISOString().slice(0,10);
+let P = null;          // profilo: {id,nome,ruolo,super_user,sito_id,email}
+const isSuper = () => !!P?.super_user;
+let DB = {};           // anagrafiche in cache: siti, attivita, operai, macchine, terzisti
+const FASCE = [25,50,75,100];
+
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2600)}
+function err(sel,m){const e=$(sel);e.textContent=m;e.style.display="block"}
+
+/* ---------------- AUTH ---------------- */
+$("#l-go").onclick = async () => {
+  $("#login-err").style.display="none";
+  const {error} = await sb.auth.signInWithPassword({email:$("#l-email").value.trim(),password:$("#l-pass").value});
+  if(error){err("#login-err","Credenziali non valide.");return}
+  start();
+};
+$("#logout").onclick = async e => {e.preventDefault(); await sb.auth.signOut(); location.reload()};
+
+async function start(){
+  const {data:{session}} = await sb.auth.getSession();
+  if(!session){$("#v-login").classList.remove("hide");$("#v-app").classList.add("hide");return}
+  const {data:prof} = await sb.from("profili").select("*").eq("id",session.user.id).single();
+  if(!prof){err("#login-err","Utente senza profilo: contattare la direzione.");await sb.auth.signOut();return}
+  P = prof;
+  // anagrafiche
+  const [si,at,op,ma,te] = await Promise.all([
+    sb.from("siti").select("*").order("id"),
+    sb.from("attivita").select("*").order("ordine"),
+    sb.from("operai").select("*").eq("attivo",true).order("nome"),
+    sb.from("macchine").select("*").eq("attivo",true).order("nome"),
+    sb.from("terzisti").select("*").eq("attivo",true).order("nome"),
+  ]);
+  DB = {siti:si.data||[], attivita:at.data||[], operai:op.data||[], macchine:ma.data||[], terzisti:te.data||[]};
+  $("#v-login").classList.add("hide");$("#v-app").classList.remove("hide");
+  $("#who-nome").textContent = P.nome;
+  const sitoNome = DB.siti.find(s=>s.id===P.sito_id)?.nome || "Tutti i siti";
+  $("#who-ruolo").textContent = P.ruolo + " · " + sitoNome;
+  buildTabs(); show(isSuper() ? "dash" : "compila");
+}
+
+/* ---------------- TABS / ROUTING ---------------- */
+const TABS = {
+  compila:{ic:"📝",l:"Compila",who:p=>true},
+  gasolio:{ic:"⛽",l:"Gasolio",who:p=>true},
+  sito:{ic:"📍",l:"Il mio sito",who:p=>!isSuper()&&p.sito_id},
+  dash:{ic:"📊",l:"Dashboard",who:p=>isSuper()},
+  setup:{ic:"⚙️",l:"Setup",who:p=>isSuper()},
+};
+function buildTabs(){
+  $("#tabs").innerHTML = Object.entries(TABS)
+    .filter(([k,t])=>t.who(P))
+    .map(([k,t])=>`<button class="tab" data-t="${k}"><span class="ic">${t.ic}</span>${t.l}</button>`).join("");
+  $$(".tab").forEach(b=>b.onclick=()=>show(b.dataset.t));
+}
+function show(k){
+  $$(".tab").forEach(b=>b.classList.toggle("on",b.dataset.t===k));
+  ["compila","gasolio","sito","dash","setup"].forEach(p=>$("#pane-"+p).classList.toggle("hide",p!==k));
+  ({compila:rCompila,gasolio:rGasolio,sito:rSito,dash:rDash,setup:rSetup})[k]();
+}
+
+/* ---------------- MOTORE COSTI (logica validata) ----------------
+   - % discreta: ultimo valore (limite alto fascia)
+   - Piantumazione: piante cumulative (ultimo valore) / previste
+   - materiali = Σ importi attività × frazione avanzamento
+   - ore uomo = ore × tariffa; macchine = presenza × tariffa/g
+   - gasolio = litri × prezzo sito; terzisti = ore × tariffa
+   - ha completati = ettari_totali × Σ(peso × %)/10000           */
+async function loadMovimenti(sito_id){
+  const q = t => sb.from(t).select("*").eq("sito_id",sito_id);
+  const [av,ou,mg,tg,ga,ri,pi,cm] = await Promise.all([
+    q("avanzamenti"),q("ore_uomo"),q("macchine_giorno"),q("terzisti_giorno"),
+    q("gasolio"),q("ritardi"),
+    sb.from("piano").select("*").eq("sito_id",sito_id),
+    sb.from("costi_materiali").select("*").eq("sito_id",sito_id),
+  ]);
+  return {av:av.data||[],ou:ou.data||[],mg:mg.data||[],tg:tg.data||[],ga:ga.data||[],ri:ri.data||[],pi:pi.data||[],cm:cm.data||[]};
+}
+function calcSito(sito, M){
+  const res = {attivita:{}, tot:{oreuomo:0,macchine:0,materiali:0,terzisti:0,gasolio:0,totale:0,gg_fermo:0,ha:0,avz:0}};
+  const tarOp = Object.fromEntries(DB.operai.map(o=>[o.id,o.tariffa_ora]));
+  const tarMa = Object.fromEntries(DB.macchine.map(m=>[m.id,m.tariffa_giorno]));
+  const tarTe = Object.fromEntries(DB.terzisti.map(t=>[t.id,t.tariffa_ora]));
+  let sumPesoPct = 0;
+  for(const a of DB.attivita){
+    const pia = M.pi.find(p=>p.attivita_id===a.id)||{};
+    const avRows = M.av.filter(r=>r.attivita_id===a.id);
+    let frac=0, label="—";
+    if(a.tipo==="status"){
+      const last = avRows.sort((x,y)=>x.data<y.data?1:-1)[0];
+      label = last?.stato || "non iniziata";
+      frac = label==="completata"?1:0;
+    } else if(a.tipo==="piante"){
+      const piante = Math.max(0,...avRows.map(r=>r.piante||0));
+      const prev = pia.piante_previste||0;
+      frac = prev>0 ? Math.min(piante/prev,1) : 0;
+      label = piante+" / "+(prev||"?")+" piante";
+    } else {
+      const pct = Math.max(0,...avRows.map(r=>r.pct||0));
+      frac = pct/100; label = pct+" %";
+    }
+    const importi = M.cm.filter(c=>c.attivita_id===a.id).reduce((s,c)=>s+ +c.importo_totale,0);
+    const oreuomo = M.ou.filter(r=>r.attivita_id===a.id).reduce((s,r)=>s+r.ore*(tarOp[r.operaio_id]||0),0);
+    const macchine = M.mg.filter(r=>r.attivita_id===a.id&&r.presente).reduce((s,r)=>s+(tarMa[r.macchina_id]||0),0);
+    const terzisti = M.tg.filter(r=>r.attivita_id===a.id).reduce((s,r)=>s+r.ore*(tarTe[r.terzista_id]||0),0);
+    const materiali = importi*frac;
+    const gg = M.ri.filter(r=>r.attivita_id===a.id).reduce((s,r)=>s+r.giorni,0);
+    res.attivita[a.id]={nome:a.nome,tipo:a.tipo,frac,label,oreuomo,macchine,materiali,terzisti,gg,
+      budget:(+pia.budget||0)+(+pia.extra_budget||0),peso:+pia.peso_pct||0,
+      inizio:pia.data_inizio_prevista,fine:pia.data_fine_prevista,
+      totale:oreuomo+macchine+materiali+terzisti};
+    sumPesoPct += (+pia.peso_pct||0)*frac*100;
+    res.tot.oreuomo+=oreuomo;res.tot.macchine+=macchine;res.tot.materiali+=materiali;
+    res.tot.terzisti+=terzisti;res.tot.gg_fermo+=gg;
+  }
+  res.tot.gasolio = M.ga.reduce((s,r)=>s+r.litri*(sito.prezzo_gasolio||0),0);
+  res.tot.totale = res.tot.oreuomo+res.tot.macchine+res.tot.materiali+res.tot.terzisti+res.tot.gasolio;
+  res.tot.avz = sumPesoPct/10000;                         // frazione 0-1
+  res.tot.ha = (sito.ettari_totali||0)*res.tot.avz;
+  return res;
+}
+
+/* ---------------- COMPILAZIONE GIORNALIERA ---------------- */
+let C = null; // stato compilazione corrente
+function sitoCorrente(){ return isSuper() ? +($("#c-sito")?.value || P.sito_id || DB.siti[0].id) : P.sito_id }
+function rCompila(){
+  const sitoSel = !isSuper() ? "" : `<div class="field"><label>Sito</label>
+    <select id="c-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===P.sito_id?"selected":""}>${esc(s.nome)}</option>`).join("")}</select></div>`;
+  C = {av:{},ou:[],mg:{},tg:[],ri:[]};
+  const attHtml = DB.attivita.map(a=>{
+    if(a.tipo==="status") return `<div class="field"><label>${esc(a.nome)}</label>
+      <select data-av="${a.id}"><option value="">—</option>
+      <option>non iniziata</option><option>in corso</option><option>in revisione</option><option>completata</option></select></div>`;
+    if(a.tipo==="piante") return `<div class="field"><label>${esc(a.nome)} — piante totali messe a dimora (cumulative)</label>
+      <input type="number" min="0" inputmode="numeric" data-piante="${a.id}" placeholder="es. 1200"></div>`;
+    return `<div class="field"><label>${esc(a.nome)} — fascia raggiunta</label>
+      <div class="fasce" data-fasce="${a.id}">
+        <button type="button" class="fascia zero" data-v="">n/d<small>oggi</small></button>
+        ${FASCE.map(f=>`<button type="button" class="fascia" data-v="${f}">${f}%<small>${f-25}–${f}</small></button>`).join("")}
+      </div></div>`;
+  }).join("");
+  $("#pane-compila").innerHTML = `
+  ${sitoSel}
+  <div class="card"><h2><span class="n">1</span>Giornata</h2>
+    <div class="row2">
+      <div class="field"><label class="req">Data</label><input type="date" id="c-data" value="${oggi()}"></div>
+      <div class="field"><label class="req">Compilatore</label><input id="c-comp" value="${esc(P.nome)}"></div>
+    </div>
+  </div>
+  <div class="card"><h2><span class="n">2</span>Avanzamento attività</h2>
+    <p class="muted" style="margin-bottom:12px">Facoltativo: indica solo le attività su cui c'è stato avanzamento. Per le fasce si segna la fascia <b>raggiunta a oggi</b> (cumulativa).</p>
+    ${attHtml}
+  </div>
+  <div class="card"><h2><span class="n">3</span>Ore uomo <span class="muted" style="text-transform:none">— obbligatorio (anche 0)</span></h2>
+    <div class="chip" style="margin-bottom:10px"><input type="checkbox" id="c-ou-zero"><span>Nessuna ora uomo oggi</span></div>
+    <div id="c-ou"></div><button class="add" id="c-ou-add">+ Aggiungi operaio</button>
+  </div>
+  <div class="card"><h2><span class="n">4</span>Macchine <span class="muted" style="text-transform:none">— obbligatorio</span></h2>
+    <div class="chip" style="margin-bottom:10px"><input type="checkbox" id="c-mg-zero"><span>Nessuna macchina presente oggi</span></div>
+    <div id="c-mg"></div><button class="add" id="c-mg-add">+ Aggiungi macchina</button>
+  </div>
+  <div class="card"><h2><span class="n">5</span>Terzisti</h2>
+    <div id="c-tg"></div><button class="add" id="c-tg-add">+ Aggiungi terzista</button>
+  </div>
+  <div class="card"><h2><span class="n">6</span>Ritardi / fermi</h2>
+    <div id="c-ri"></div><button class="add" id="c-ri-add">+ Segnala ritardo</button>
+  </div>
+  <div class="err" id="c-err"></div>
+  <button class="btn btn-p" id="c-invia">Invia compilazione</button>`;
+  // fasce
+  $$("[data-fasce]").forEach(g=>g.querySelectorAll(".fascia").forEach(b=>b.onclick=()=>{
+    g.querySelectorAll(".fascia").forEach(x=>x.classList.remove("on"));b.classList.add("on");
+  }));
+  const attOpt = `<option value="">attività…</option>`+DB.attivita.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join("");
+  $("#c-ou-add").onclick=()=>{$("#c-ou").insertAdjacentHTML("beforeend",
+    `<div class="dyn-row" style="grid-template-columns:1.2fr 1fr .7fr auto">
+     <select class="ou-op"><option value="">operaio…</option>${DB.operai.map(o=>`<option value="${o.id}">${esc(o.nome)}</option>`).join("")}</select>
+     <select class="ou-att">${attOpt}</select>
+     <input type="number" class="ou-ore" min="0" step="0.5" placeholder="ore" inputmode="decimal">
+     <button class="x" onclick="this.parentNode.remove()">×</button></div>`)};
+  $("#c-mg-add").onclick=()=>{$("#c-mg").insertAdjacentHTML("beforeend",
+    `<div class="dyn-row" style="grid-template-columns:1.3fr 1fr auto">
+     <select class="mg-ma"><option value="">macchina…</option>${DB.macchine.map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join("")}</select>
+     <select class="mg-att">${attOpt}</select>
+     <button class="x" onclick="this.parentNode.remove()">×</button>
+     <div style="grid-column:1/-1;display:flex;gap:8px">
+       <label class="chip gold" style="flex:1"><input type="checkbox" class="mg-p" checked>Presente (costo)</label>
+       <label class="chip" style="flex:1"><input type="checkbox" class="mg-u">Usata</label></div></div>`)};
+  $("#c-tg-add").onclick=()=>{$("#c-tg").insertAdjacentHTML("beforeend",
+    `<div class="dyn-row" style="grid-template-columns:1.2fr 1fr .7fr auto">
+     <select class="tg-te"><option value="">terzista…</option>${DB.terzisti.filter(t=>t.sito_id===sitoCorrente()).map(t=>`<option value="${t.id}">${esc(t.nome)}</option>`).join("")}</select>
+     <select class="tg-att">${attOpt}</select>
+     <input type="number" class="tg-ore" min="0" step="0.5" placeholder="ore" inputmode="decimal">
+     <button class="x" onclick="this.parentNode.remove()">×</button>
+     <div style="grid-column:1/-1"><div class="fasce tg-fasce">
+       <button type="button" class="fascia zero on" data-v="">n/d</button>
+       ${FASCE.map(f=>`<button type="button" class="fascia" data-v="${f}">${f}%</button>`).join("")}
+     </div></div></div>`);
+    const row=$("#c-tg").lastElementChild;
+    row.querySelectorAll(".fascia").forEach(b=>b.onclick=()=>{row.querySelectorAll(".fascia").forEach(x=>x.classList.remove("on"));b.classList.add("on")})};
+  $("#c-ri-add").onclick=()=>{$("#c-ri").insertAdjacentHTML("beforeend",
+    `<div class="dyn-row" style="grid-template-columns:1fr .6fr auto">
+     <select class="ri-att">${attOpt}</select>
+     <input type="number" class="ri-gg" min="1" placeholder="giorni" inputmode="numeric">
+     <button class="x" onclick="this.parentNode.remove()">×</button>
+     <input class="ri-causa" placeholder="causa (es. attesa materiali)" style="grid-column:1/-1"></div>`)};
+  $("#c-invia").onclick=inviaCompilazione;
+}
+async function inviaCompilazione(){
+  $("#c-err").style.display="none";
+  const sito_id=sitoCorrente(), data=$("#c-data").value, comp=$("#c-comp").value.trim();
+  if(!data||!comp){return err("#c-err","Data e nome del compilatore sono obbligatori.")}
+  // obbligo ore uomo (anche zero) e macchine
+  const ouRows=$$("#c-ou .dyn-row"), mgRows=$$("#c-mg .dyn-row");
+  const ouZero=$("#c-ou-zero").checked, mgZero=$("#c-mg-zero").checked;
+  if(!ouZero && ouRows.length===0) return err("#c-err","Ore uomo: aggiungi almeno un operaio o spunta «Nessuna ora uomo oggi».");
+  if(!mgZero && mgRows.length===0) return err("#c-err","Macchine: aggiungi almeno una macchina o spunta «Nessuna macchina presente oggi».");
+  const ins = {av:[],ou:[],mg:[],tg:[],ri:[]};
+  for(const a of DB.attivita){
+    if(a.tipo==="status"){const v=$(`[data-av="${a.id}"]`)?.value; if(v) ins.av.push({sito_id,attivita_id:a.id,data,compilatore:comp,stato:v});}
+    else if(a.tipo==="piante"){const v=+($(`[data-piante="${a.id}"]`)?.value||0); if(v>0) ins.av.push({sito_id,attivita_id:a.id,data,compilatore:comp,piante:v});}
+    else {const on=$(`[data-fasce="${a.id}"] .fascia.on`); const v=on?.dataset.v; if(v) ins.av.push({sito_id,attivita_id:a.id,data,compilatore:comp,pct:+v});}
+  }
+  for(const r of ouRows){const op=+r.querySelector(".ou-op").value,att=+r.querySelector(".ou-att").value||null,ore=+r.querySelector(".ou-ore").value;
+    if(!op) return err("#c-err","Ore uomo: seleziona l'operaio in ogni riga.");
+    ins.ou.push({sito_id,data,operaio_id:op,attivita_id:att,ore:ore>=0?ore:0});}
+  for(const r of mgRows){const ma=+r.querySelector(".mg-ma").value,att=+r.querySelector(".mg-att").value||null;
+    if(!ma) return err("#c-err","Macchine: seleziona la macchina in ogni riga.");
+    ins.mg.push({sito_id,data,macchina_id:ma,attivita_id:att,presente:r.querySelector(".mg-p").checked,usata:r.querySelector(".mg-u").checked});}
+  for(const r of $$("#c-tg .dyn-row")){const te=+r.querySelector(".tg-te").value,att=+r.querySelector(".tg-att").value||null,
+    ore=+r.querySelector(".tg-ore").value||0, f=r.querySelector(".fascia.on")?.dataset.v;
+    if(!te) continue;
+    ins.tg.push({sito_id,data,terzista_id:te,attivita_id:att,ore,pct:f?+f:null});}
+  for(const r of $$("#c-ri .dyn-row")){const att=+r.querySelector(".ri-att").value||null,gg=+r.querySelector(".ri-gg").value||0;
+    if(gg>0) ins.ri.push({sito_id,data,attivita_id:att,giorni:gg,causa:r.querySelector(".ri-causa").value});}
+  // scritture
+  const e1=(await sb.from("compilazioni").upsert({sito_id,data,compilatore:comp},{onConflict:"sito_id,data"})).error;
+  const ops=[];
+  if(ins.av.length)ops.push(sb.from("avanzamenti").insert(ins.av));
+  if(ins.ou.length)ops.push(sb.from("ore_uomo").insert(ins.ou));
+  if(ins.mg.length)ops.push(sb.from("macchine_giorno").insert(ins.mg));
+  if(ins.tg.length)ops.push(sb.from("terzisti_giorno").insert(ins.tg));
+  if(ins.ri.length)ops.push(sb.from("ritardi").insert(ins.ri));
+  const errs=(await Promise.all(ops)).filter(r=>r.error);
+  if(e1||errs.length) return err("#c-err","Errore di salvataggio: riprova. Se persiste contatta la direzione.");
+  toast("Compilazione inviata ✓"); rCompila();
+}
+
+/* ---------------- GASOLIO ---------------- */
+function rGasolio(){
+  const sitoSel = !isSuper() ? "" : `<div class="field"><label>Sito</label>
+    <select id="g-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===P.sito_id?"selected":""}>${esc(s.nome)}</option>`).join("")}</select></div>`;
+  $("#pane-gasolio").innerHTML = `
+  ${sitoSel}
+  <div class="card"><h2>⛽ Gasolio — dichiarazione giornaliera</h2>
+    <p class="muted" style="margin-bottom:12px">Obbligatoria ogni giorno. Se non ci sono stati rifornimenti, usa il pulsante rapido.</p>
+    <div class="row2">
+      <div class="field"><label class="req">Data</label><input type="date" id="g-data" value="${oggi()}"></div>
+      <div class="field"><label class="req">Operatore</label><input id="g-op" value="${esc(P.nome)}"></div>
+    </div>
+    <button class="btn btn-g" id="g-zero" style="margin-bottom:16px">✓ Nessun rifornimento oggi</button>
+    <div style="border-top:1px dashed var(--line);padding-top:14px">
+      <div class="field"><label class="req">Litri prelevati</label><input type="number" id="g-litri" min="0" inputmode="decimal" placeholder="es. 80"></div>
+      <div class="field"><label class="req">Mezzo rifornito</label>
+        <select id="g-mezzo"><option value="">seleziona…</option>${DB.macchine.map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join("")}</select></div>
+      <div class="field"><label>Progressivo ore mezzo</label><input type="number" id="g-prog" min="0" inputmode="decimal" placeholder="es. 1240"></div>
+      <div class="err" id="g-err"></div>
+      <button class="btn btn-p" id="g-invia">Registra rifornimento</button>
+    </div>
+  </div>`;
+  const gsito=()=>isSuper()?+($("#g-sito")?.value||P.sito_id||DB.siti[0].id):P.sito_id;
+  $("#g-zero").onclick=async()=>{
+    const {error}=await sb.from("gasolio").insert({sito_id:gsito(),data:$("#g-data").value,litri:0,operatore:$("#g-op").value.trim()||P.nome});
+    if(error)return err("#g-err","Errore di salvataggio, riprova.");
+    toast("Registrato: nessun rifornimento ✓")};
+  $("#g-invia").onclick=async()=>{
+    $("#g-err").style.display="none";
+    const litri=+$("#g-litri").value, mezzo=+$("#g-mezzo").value;
+    if(!(litri>0))return err("#g-err","Indica i litri prelevati (oppure usa «Nessun rifornimento»).");
+    if(!mezzo)return err("#g-err","Seleziona il mezzo rifornito.");
+    const {error}=await sb.from("gasolio").insert({sito_id:gsito(),data:$("#g-data").value,litri,
+      macchina_id:mezzo,progressivo_ore:+$("#g-prog").value||null,operatore:$("#g-op").value.trim()||P.nome});
+    if(error)return err("#g-err","Errore di salvataggio, riprova.");
+    toast("Rifornimento registrato ✓");rGasolio()};
+}
+
+/* ---------------- VISTA SITO (PM/FM): piano vs reale ---------------- */
+async function rSito(){
+  const sito = DB.siti.find(s=>s.id===P.sito_id);
+  $("#pane-sito").innerHTML = `<p class="muted">Caricamento…</p>`;
+  const M = await loadMovimenti(P.sito_id);
+  const R = calcSito(sito, M);
+  const T=R.tot, oggiD=oggi();
+  const budTot = Object.values(R.attivita).reduce((s,a)=>s+a.budget,0);
+  const rows = DB.attivita.map(a=>{
+    const x=R.attivita[a.id];
+    // scostamento temporale: confronto frazione attesa (lineare tra date) vs reale
+    let timePill="";
+    if(x.fine && x.inizio){
+      const tot=(new Date(x.fine)-new Date(x.inizio))||1;
+      const attesa=Math.min(Math.max((new Date(oggiD)-new Date(x.inizio))/tot,0),1);
+      const diff=x.frac-attesa;
+      timePill = diff>=-0.05?`<span class="pill ok">in linea</span>`
+        : diff>=-0.25?`<span class="pill late">ritardo lieve</span>`
+        :`<span class="pill bad">ritardo</span>`;
+    }
+    const overB = x.budget>0 && x.totale>x.budget;
+    return `<div class="att-row">
+      <div class="t"><span>${esc(x.nome)}</span><span>${esc(x.label)} ${timePill}</span></div>
+      <div class="bar"><i style="width:${Math.round(x.frac*100)}%"></i></div>
+      <div class="s"><span>Costo: <b>${eur(x.totale)}</b>${x.budget>0?` / budget ${eur(x.budget)}`:""}</span>
+        <span>${x.budget>0?`<span class="pill ${overB?"bad":"ok"}">${overB?"+":""}${eur(x.totale-x.budget)}</span>`:""}</span></div>
+      ${x.budget>0?`<div class="bar"><i class="${overB?"over":""}" style="width:${Math.min(Math.round(x.totale/x.budget*100),100)}%"></i></div>`:""}
+    </div>`;
+  }).join("");
+  $("#pane-sito").innerHTML = `
+  <div class="kpi">
+    <div class="k"><b>${Math.round(T.avz*100)}%</b><span>Avanzamento sito</span></div>
+    <div class="k"><b>${T.ha.toFixed(1)}</b><span>Ettari completati / ${sito.ettari_totali}</span></div>
+    <div class="k"><b>${eur(T.totale)}</b><span>Costo a oggi</span></div>
+    <div class="k"><b style="color:${T.totale>budTot&&budTot>0?'var(--red)':'var(--forest)'}">${budTot>0?eur(budTot-T.totale):"—"}</b><span>Budget residuo</span></div>
+  </div>
+  <div class="card"><h2>📍 ${esc(sito.nome)} — attività vs piano</h2>${rows}</div>
+  <div class="card"><h2>Costi per categoria</h2>
+    <table class="grid"><tr><th>Categoria</th><th>€</th></tr>
+    <tr><td>Ore uomo</td><td>${eur(T.oreuomo)}</td></tr>
+    <tr><td>Macchine</td><td>${eur(T.macchine)}</td></tr>
+    <tr><td>Materiali (maturati)</td><td>${eur(T.materiali)}</td></tr>
+    <tr><td>Terzisti</td><td>${eur(T.terzisti)}</td></tr>
+    <tr><td>Gasolio</td><td>${eur(T.gasolio)}</td></tr>
+    <tr><td><b>Totale</b></td><td><b>${eur(T.totale)}</b></td></tr></table>
+    <p class="muted" style="margin-top:8px">Giorni fermo cumulati: <b>${T.gg_fermo}</b></p>
+  </div>`;
+}
+
+/* ---------------- DASHBOARD (CFO/CEO) ---------------- */
+let chRef=null;
+async function rDash(){
+  $("#pane-dash").innerHTML=`<p class="muted">Caricamento 7 siti…</p>`;
+  const per = [];
+  for(const s of DB.siti){ per.push({sito:s, R:calcSito(s, await loadMovimenti(s.id))}) }
+  const tot = per.reduce((acc,{R})=>{for(const k of ["oreuomo","macchine","materiali","terzisti","gasolio","totale","gg_fermo","ha"])acc[k]=(acc[k]||0)+R.tot[k];return acc},{});
+  const budPer = per.map(({R})=>Object.values(R.attivita).reduce((s,a)=>s+a.budget,0));
+  const budTot = budPer.reduce((a,b)=>a+b,0);
+  const rows = per.map(({sito,R},i)=>{
+    const b=budPer[i], sc=R.tot.totale-b;
+    return `<tr><td>${esc(sito.nome)}</td><td>${Math.round(R.tot.avz*100)}%</td>
+    <td>${R.tot.ha.toFixed(1)}</td><td>${eur(R.tot.oreuomo)}</td><td>${eur(R.tot.macchine)}</td>
+    <td>${eur(R.tot.materiali)}</td><td>${eur(R.tot.terzisti)}</td><td>${eur(R.tot.gasolio)}</td>
+    <td><b>${eur(R.tot.totale)}</b></td><td>${eur(b)}</td>
+    <td style="color:${sc>0&&b>0?'var(--red)':'inherit'}">${b>0?eur(sc):"—"}</td><td>${R.tot.gg_fermo}</td></tr>`}).join("");
+  $("#pane-dash").innerHTML = `
+  <div class="kpi">
+    <div class="k"><b>${eur(tot.totale)}</b><span>Costo totale portfolio</span></div>
+    <div class="k"><b style="color:${tot.totale>budTot&&budTot>0?'var(--red)':'var(--forest)'}">${budTot>0?eur(budTot-tot.totale):"—"}</b><span>Budget residuo</span></div>
+    <div class="k"><b>${tot.ha.toFixed(1)}</b><span>Ettari completati</span></div>
+    <div class="k"><b>${tot.gg_fermo}</b><span>Giorni fermo</span></div>
+  </div>
+  <div class="card"><h2>📊 Consolidamento 7 siti</h2><div class="scroll-x">
+    <table class="grid"><tr><th>Sito</th><th>Avz</th><th>Ha</th><th>Uomo</th><th>Macch</th><th>Mater</th><th>Terz</th><th>Gas</th><th>Totale</th><th>Budget</th><th>Scost</th><th>Fermo</th></tr>${rows}</table>
+  </div></div>
+  <div class="card"><h2>Costi per sito (in pila)</h2><canvas id="ch-pila" height="220"></canvas></div>
+  <div class="card"><h2>Esporta dati (CSV)</h2>
+    <div class="row2">
+      ${["avanzamenti","ore_uomo","macchine_giorno","terzisti_giorno","gasolio","ritardi","piano","costi_materiali","compilazioni"]
+        .map(t=>`<button class="btn btn-o btn-sm" data-csv="${t}" style="margin-bottom:8px">${t.replace("_"," ")}</button>`).join("")}
+      <button class="btn btn-g btn-sm" id="csv-consol" style="margin-bottom:8px">consolidamento</button>
+    </div>
+  </div>`;
+  // grafico pila
+  if(chRef)chRef.destroy();
+  chRef=new Chart($("#ch-pila"),{type:"bar",
+    data:{labels:per.map(p=>p.sito.nome),
+      datasets:[["Ore uomo","oreuomo","#1F5C2E"],["Macchine","macchine","#6FA84A"],["Materiali","materiali","#C6DFA3"],["Terzisti","terzisti","#E8A33D"],["Gasolio","gasolio","#8D6E63"]]
+        .map(([l,k,c])=>({label:l,data:per.map(p=>p.R.tot[k]),backgroundColor:c}))},
+    options:{responsive:true,scales:{x:{stacked:true},y:{stacked:true}},plugins:{legend:{position:"bottom"}}}});
+  // export
+  $$("[data-csv]").forEach(b=>b.onclick=()=>exportCsv(b.dataset.csv));
+  $("#csv-consol").onclick=()=>{
+    const head="Sito;Avanzamento %;Ha completati;Ore uomo;Macchine;Materiali;Terzisti;Gasolio;Totale;Budget;Scostamento;Giorni fermo";
+    const lines=per.map(({sito,R},i)=>[sito.nome,Math.round(R.tot.avz*100),R.tot.ha.toFixed(1),R.tot.oreuomo,R.tot.macchine,Math.round(R.tot.materiali),R.tot.terzisti,R.tot.gasolio,Math.round(R.tot.totale),budPer[i],Math.round(R.tot.totale-budPer[i]),R.tot.gg_fermo].join(";"));
+    dlCsv("consolidamento.csv",[head,...lines].join("\n"))};
+}
+async function exportCsv(table){
+  const {data,error}=await sb.from(table).select("*");
+  if(error||!data?.length)return toast("Nessun dato in "+table);
+  const cols=Object.keys(data[0]);
+  const csv=[cols.join(";"),...data.map(r=>cols.map(c=>String(r[c]??"").replace(/;/g,",")).join(";"))].join("\n");
+  dlCsv(table+".csv",csv);
+}
+function dlCsv(name,content){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob(["\uFEFF"+content],{type:"text/csv;charset=utf-8"}));
+  a.download=name;a.click();
+}
+
+/* ---------------- SETUP (CFO/CEO) ---------------- */
+async function rSetup(){
+  $("#pane-setup").innerHTML = `
+  <div class="card"><h2>⚙️ Setup</h2>
+    <div class="row2">
+      <button class="btn btn-o btn-sm" data-s="siti">Siti</button>
+      <button class="btn btn-o btn-sm" data-s="operai">Operai</button>
+      <button class="btn btn-o btn-sm" data-s="macchine">Macchine (aziendali)</button>
+      <button class="btn btn-o btn-sm" data-s="terzisti">Terzisti</button>
+      <button class="btn btn-o btn-sm" data-s="piano">Piano di progetto</button>
+      <button class="btn btn-o btn-sm" data-s="materiali">Costi materiali</button>
+    </div></div>
+  <div id="setup-body"></div>`;
+  $$("[data-s]").forEach(b=>b.onclick=()=>SETUP[b.dataset.s]());
+  SETUP.piano();
+}
+const SETUP = {
+ async siti(){
+  const {data}= await sb.from("siti").select("*").order("id");
+  $("#setup-body").innerHTML=`<div class="card"><h2>Siti — ettari e prezzo gasolio</h2>
+   ${data.map(s=>`<div class="dyn-row" style="grid-template-columns:1.3fr .8fr .8fr" data-id="${s.id}">
+     <b style="align-self:center">${esc(s.nome)}</b>
+     <div><label>Ettari</label><input type="number" class="s-ha" value="${s.ettari_totali}"></div>
+     <div><label>€/litro</label><input type="number" step="0.01" class="s-pg" value="${s.prezzo_gasolio}"></div>
+   </div>`).join("")}
+   <button class="btn btn-p" id="s-save">Salva siti</button></div>`;
+  $("#s-save").onclick=async()=>{
+    for(const r of $$("#setup-body [data-id]"))
+      await sb.from("siti").update({ettari_totali:+r.querySelector(".s-ha").value,prezzo_gasolio:+r.querySelector(".s-pg").value}).eq("id",+r.dataset.id);
+    toast("Siti salvati ✓");Object.assign(DB.siti,(await sb.from("siti").select("*").order("id")).data)};
+ },
+ async operai(){ anag("operai","Operai",[["nome","Nome",null],["tariffa_ora","€/ora","number"]]) },
+ async macchine(){ anag("macchine","Macchine — elenco unico aziendale",[["nome","Nome",null],["tariffa_giorno","€/giorno","number"]]) },
+ async terzisti(){ anag("terzisti","Terzisti (per sito)",[["nome","Nome",null],["tariffa_ora","€/ora","number"]],true) },
+ async piano(){
+  const sid=+($("#p-sito")?.value||DB.siti[0].id);
+  const {data:pi}=await sb.from("piano").select("*").eq("sito_id",sid);
+  const rows=DB.attivita.map(a=>{
+    const p=pi.find(x=>x.attivita_id===a.id)||{};
+    return `<div class="card" data-att="${a.id}" data-pid="${p.id||""}" style="padding:12px">
+      <b>${esc(a.nome)}</b>
+      <div class="row2" style="margin-top:8px">
+        <div><label>Inizio prev.</label><input type="date" class="p-di" value="${p.data_inizio_prevista||""}"></div>
+        <div><label>Fine prev.</label><input type="date" class="p-df" value="${p.data_fine_prevista||""}"></div>
+        <div><label>Budget €</label><input type="number" class="p-b" value="${p.budget||0}"></div>
+        <div><label>Extra budget €</label><input type="number" class="p-eb" value="${p.extra_budget||0}"></div>
+        <div><label>Peso %</label><input type="number" class="p-w" value="${p.peso_pct||0}"></div>
+        ${a.tipo==="piante"?`<div><label>Piante previste</label><input type="number" class="p-pp" value="${p.piante_previste||""}"></div>`:""}
+      </div></div>`}).join("");
+  $("#setup-body").innerHTML=`<div class="card"><h2>Piano di progetto</h2>
+    <div class="field"><label>Sito</label><select id="p-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===sid?"selected":""}>${esc(s.nome)}</option>`).join("")}</select></div>
+    <p class="muted" id="p-peso-sum" style="margin-bottom:10px"></p></div>
+    ${rows}<button class="btn btn-p" id="p-save">Salva piano sito</button>`;
+  const updSum=()=>{const tot=$$(".p-w").reduce((s,i)=>s+(+i.value||0),0);
+    $("#p-peso-sum").innerHTML=`Somma pesi: <b style="color:${tot===100?'var(--forest)':'var(--red)'}">${tot}%</b> (deve essere 100)`;};
+  $$(".p-w").forEach(i=>i.oninput=updSum);updSum();
+  $("#p-sito").onchange=()=>SETUP.piano();
+  $("#p-save").onclick=async()=>{
+    for(const c of $$("[data-att]")){
+      const rec={sito_id:sid,attivita_id:+c.dataset.att,
+        data_inizio_prevista:c.querySelector(".p-di").value||null,
+        data_fine_prevista:c.querySelector(".p-df").value||null,
+        budget:+c.querySelector(".p-b").value||0,
+        extra_budget:+c.querySelector(".p-eb").value||0,
+        peso_pct:+c.querySelector(".p-w").value||0,
+        piante_previste:c.querySelector(".p-pp")?+c.querySelector(".p-pp").value||null:null};
+      const pid=c.dataset.pid;
+      if(pid) await sb.from("piano").update(rec).eq("id",+pid);
+      else await sb.from("piano").insert(rec);
+    }
+    toast("Piano salvato ✓");SETUP.piano()};
+ },
+ async materiali(){
+  const sid=+($("#m-sito")?.value||DB.siti[0].id);
+  const {data:cm}=await sb.from("costi_materiali").select("*").eq("sito_id",sid).order("attivita_id");
+  const rows=DB.attivita.filter(a=>a.tipo!=="status").map(a=>{
+    const voci=cm.filter(c=>c.attivita_id===a.id);
+    return `<div class="card" style="padding:12px"><b>${esc(a.nome)}</b>
+     <div class="m-list" data-att="${a.id}">
+      ${voci.map(v=>`<div class="dyn-row" style="grid-template-columns:1.4fr .8fr auto" data-vid="${v.id}">
+        <input class="m-voce" value="${esc(v.voce)}"><input type="number" class="m-imp" value="${v.importo_totale}">
+        <button class="x m-del">×</button></div>`).join("")}
+     </div>
+     <button class="add m-add" data-att="${a.id}">+ Aggiungi voce</button>
+     <p class="muted">Totale attività: <b>${eur(voci.reduce((s,v)=>s+ +v.importo_totale,0))}</b></p></div>`}).join("");
+  $("#setup-body").innerHTML=`<div class="card"><h2>Costi materiali — importi totali per voce</h2>
+    <div class="field"><label>Sito</label><select id="m-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===sid?"selected":""}>${esc(s.nome)}</option>`).join("")}</select></div>
+    <p class="muted">Il costo matura con l'avanzamento: importo × fascia % (o piante/previste per la Piantumazione).</p></div>
+    ${rows}<button class="btn btn-p" id="m-save">Salva materiali sito</button>`;
+  $("#m-sito").onchange=()=>SETUP.materiali();
+  $$(".m-add").forEach(b=>b.onclick=()=>{
+    $(`.m-list[data-att="${b.dataset.att}"]`).insertAdjacentHTML("beforeend",
+    `<div class="dyn-row" style="grid-template-columns:1.4fr .8fr auto" data-vid="">
+      <input class="m-voce" placeholder="voce (es. Geotessuto)"><input type="number" class="m-imp" placeholder="importo €">
+      <button class="x m-del">×</button></div>`);bindDel()});
+  function bindDel(){$$(".m-del").forEach(x=>x.onclick=async()=>{
+    const row=x.parentNode, vid=row.dataset.vid;
+    if(vid) await sb.from("costi_materiali").delete().eq("id",+vid);
+    row.remove()})}
+  bindDel();
+  $("#m-save").onclick=async()=>{
+    for(const l of $$(".m-list")){
+      const att=+l.dataset.att;
+      for(const r of l.querySelectorAll(".dyn-row")){
+        const voce=r.querySelector(".m-voce").value.trim(), imp=+r.querySelector(".m-imp").value||0, vid=r.dataset.vid;
+        if(!voce) continue;
+        if(vid) await sb.from("costi_materiali").update({voce,importo_totale:imp}).eq("id",+vid);
+        else await sb.from("costi_materiali").insert({sito_id:sid,attivita_id:att,voce,importo_totale:imp});
+      }}
+    toast("Materiali salvati ✓");SETUP.materiali()};
+ },
+};
+async function anag(table,titolo,campi,perSito=false){
+  const {data}=await sb.from(table).select("*").order("id");
+  $("#setup-body").innerHTML=`<div class="card"><h2>${titolo}</h2>
+   <div id="an-list">${data.map(r=>`<div class="dyn-row" style="grid-template-columns:${perSito?"1fr ":""}1.2fr .8fr auto" data-id="${r.id}">
+     ${perSito?`<select class="an-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===r.sito_id?"selected":""}>${esc(s.nome)}</option>`).join("")}</select>`:""}
+     ${campi.map(([k,l,t])=>`<input class="an-${k}" type="${t||"text"}" value="${esc(r[k])}" placeholder="${l}">`).join("")}
+     <button class="x an-off" title="disattiva">×</button></div>`).join("")}</div>
+   <button class="add" id="an-add">+ Aggiungi</button>
+   <button class="btn btn-p" id="an-save" style="margin-top:10px">Salva</button></div>`;
+  $("#an-add").onclick=()=>{$("#an-list").insertAdjacentHTML("beforeend",
+    `<div class="dyn-row" style="grid-template-columns:${perSito?"1fr ":""}1.2fr .8fr auto" data-id="">
+     ${perSito?`<select class="an-sito">${DB.siti.map(s=>`<option value="${s.id}">${esc(s.nome)}</option>`).join("")}</select>`:""}
+     ${campi.map(([k,l,t])=>`<input class="an-${k}" type="${t||"text"}" placeholder="${l}">`).join("")}
+     <button class="x an-off">×</button></div>`);bindOff()};
+  function bindOff(){$$(".an-off").forEach(x=>x.onclick=async()=>{
+    const row=x.parentNode,id=row.dataset.id;
+    if(id) await sb.from(table).update({attivo:false}).eq("id",+id);
+    row.remove()})}
+  bindOff();
+  $("#an-save").onclick=async()=>{
+    for(const r of $$("#an-list .dyn-row")){
+      const rec={};
+      for(const [k] of campi){const v=r.querySelector(".an-"+k).value;rec[k]=isNaN(+v)||v===""?v:+v}
+      if(perSito)rec.sito_id=+r.querySelector(".an-sito").value;
+      if(!rec[campi[0][0]])continue;
+      const id=r.dataset.id;
+      if(id)await sb.from(table).update(rec).eq("id",+id);
+      else await sb.from(table).insert(rec);
+    }
+    toast("Salvato ✓");
+    const fresh=await sb.from(table).select("*").eq("attivo",true).order("nome");
+    DB[table]=fresh.data||[];
+    anag(table,titolo,campi,perSito)};
+}
+
+/* ---------------- avvio ---------------- */
+start();
+</script>
+</body>
+</html>
