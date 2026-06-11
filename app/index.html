@@ -196,14 +196,16 @@ async function start(){
   if(!prof){err("#login-err","Utente senza profilo: contattare la direzione.");await sb.auth.signOut();return}
   P = prof;
   // anagrafiche
-  const [si,at,op,ma,te] = await Promise.all([
+  const [si,at,op,ma,te,pa] = await Promise.all([
     sb.from("siti").select("*").order("id"),
     sb.from("attivita").select("*").order("ordine"),
     sb.from("operai").select("*").eq("attivo",true).order("nome"),
     sb.from("macchine").select("*").eq("attivo",true).order("nome"),
     sb.from("terzisti").select("*").eq("attivo",true).order("nome"),
+    sb.from("parametri").select("*"),
   ]);
-  DB = {siti:si.data||[], attivita:at.data||[], operai:op.data||[], macchine:ma.data||[], terzisti:te.data||[]};
+  DB = {siti:si.data||[], attivita:at.data||[], operai:op.data||[], macchine:ma.data||[], terzisti:te.data||[],
+        par:Object.fromEntries((pa.data||[]).map(p=>[p.chiave,+p.valore]))};
   $("#v-login").classList.add("hide");$("#v-app").classList.remove("hide");
   $("#who-nome").textContent = P.nome;
   const sitoNome = DB.siti.find(s=>s.id===P.sito_id)?.nome || "Tutti i siti";
@@ -285,7 +287,7 @@ function calcSito(sito, M){
     res.tot.oreuomo+=oreuomo;res.tot.macchine+=macchine;res.tot.materiali+=materiali;
     res.tot.terzisti+=terzisti;res.tot.gg_fermo+=gg;
   }
-  res.tot.gasolio = M.ga.reduce((s,r)=>s+r.litri*(sito.prezzo_gasolio||0),0);
+  res.tot.gasolio = M.ga.reduce((s,r)=>s+r.litri*(DB.par?.prezzo_gasolio||0),0);
   res.tot.totale = res.tot.oreuomo+res.tot.macchine+res.tot.materiali+res.tot.terzisti+res.tot.gasolio;
   res.tot.avz = sumPesoPct/10000;                         // frazione 0-1
   res.tot.ha = (sito.ettari_totali||0)*res.tot.avz;
@@ -571,7 +573,7 @@ async function rSetup(){
   $("#pane-setup").innerHTML = `
   <div class="card"><h2>⚙️ Setup</h2>
     <div class="row2">
-      <button class="btn btn-o btn-sm" data-s="siti">Siti</button>
+      <button class="btn btn-o btn-sm" data-s="siti">Siti e parametri</button>
       <button class="btn btn-o btn-sm" data-s="operai">Operai</button>
       <button class="btn btn-o btn-sm" data-s="macchine">Macchine (aziendali)</button>
       <button class="btn btn-o btn-sm" data-s="terzisti">Terzisti</button>
@@ -585,16 +587,24 @@ async function rSetup(){
 const SETUP = {
  async siti(){
   const {data}= await sb.from("siti").select("*").order("id");
-  $("#setup-body").innerHTML=`<div class="card"><h2>Siti — ettari e prezzo gasolio</h2>
-   ${data.map(s=>`<div class="dyn-row" style="grid-template-columns:1.3fr .8fr .8fr" data-id="${s.id}">
+  $("#setup-body").innerHTML=`<div class="card"><h2>Parametri aziendali</h2>
+   <div class="field"><label>Prezzo gasolio €/litro (unico per tutta l'azienda)</label>
+   <input type="number" step="0.01" id="par-pg" value="${DB.par?.prezzo_gasolio??1.35}"></div>
+   <button class="btn btn-p" id="par-save">Salva parametri</button></div>
+   <div class="card"><h2>Siti — ettari totali</h2>
+   ${data.map(s=>`<div class="dyn-row" style="grid-template-columns:1.3fr .8fr" data-id="${s.id}">
      <b style="align-self:center">${esc(s.nome)}</b>
      <div><label>Ettari</label><input type="number" class="s-ha" value="${s.ettari_totali}"></div>
-     <div><label>€/litro</label><input type="number" step="0.01" class="s-pg" value="${s.prezzo_gasolio}"></div>
    </div>`).join("")}
    <button class="btn btn-p" id="s-save">Salva siti</button></div>`;
+  $("#par-save").onclick=async()=>{
+    const v=+$("#par-pg").value||0;
+    const {error}=await sb.from("parametri").upsert({chiave:"prezzo_gasolio",valore:v});
+    if(error)return toast("Errore di salvataggio");
+    DB.par.prezzo_gasolio=v;toast("Parametri salvati ✓")};
   $("#s-save").onclick=async()=>{
     for(const r of $$("#setup-body [data-id]"))
-      await sb.from("siti").update({ettari_totali:+r.querySelector(".s-ha").value,prezzo_gasolio:+r.querySelector(".s-pg").value}).eq("id",+r.dataset.id);
+      await sb.from("siti").update({ettari_totali:+r.querySelector(".s-ha").value}).eq("id",+r.dataset.id);
     toast("Siti salvati ✓");Object.assign(DB.siti,(await sb.from("siti").select("*").order("id")).data)};
  },
  async operai(){ anag("operai","Operai",[["nome","Nome",null],["tariffa_ora","€/ora","number"]]) },
