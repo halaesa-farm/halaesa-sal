@@ -162,8 +162,8 @@ table.grid td:first-child{text-align:left;font-weight:600}
 
 <script>
 /* ================== CONFIG — da compilare al setup ================== */
-const SUPABASE_URL = "https://urzmmnqwqvsltnepajeb.supabase.co";        // Settings > API > Project URL
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVyem1tbnF3cXZzbHRuZXBhamViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNjA2OTIsImV4cCI6MjA5NjczNjY5Mn0.y43iNoYikOiw3qaufjf9ltGPHsabeXcvovoDJwum2xU";   // Settings > API > anon public
+const SUPABASE_URL = "INCOLLA_QUI_URL";        // Settings > API > Project URL
+const SUPABASE_KEY = "INCOLLA_QUI_ANON_KEY";   // Settings > API > anon public
 /* ===================================================================== */
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -242,13 +242,14 @@ function show(k){
    - ha completati = ettari_totali × Σ(peso × %)/10000           */
 async function loadMovimenti(sito_id){
   const q = t => sb.from(t).select("*").eq("sito_id",sito_id);
-  const [av,ou,mg,tg,ga,ri,pi,cm] = await Promise.all([
+  const [av,ou,mg,tg,ga,ri,pi,cm,tp] = await Promise.all([
     q("avanzamenti"),q("ore_uomo"),q("macchine_giorno"),q("terzisti_giorno"),
     q("gasolio"),q("ritardi"),
     sb.from("piano").select("*").eq("sito_id",sito_id),
     sb.from("costi_materiali").select("*").eq("sito_id",sito_id),
+    sb.from("terzisti_preventivi").select("*").eq("sito_id",sito_id),
   ]);
-  return {av:av.data||[],ou:ou.data||[],mg:mg.data||[],tg:tg.data||[],ga:ga.data||[],ri:ri.data||[],pi:pi.data||[],cm:cm.data||[]};
+  return {av:av.data||[],ou:ou.data||[],mg:mg.data||[],tg:tg.data||[],ga:ga.data||[],ri:ri.data||[],pi:pi.data||[],cm:cm.data||[],tp:tp.data||[]};
 }
 function calcSito(sito, M){
   const res = {attivita:{}, tot:{oreuomo:0,macchine:0,materiali:0,terzisti:0,gasolio:0,totale:0,gg_fermo:0,ha:0,avz:0}};
@@ -258,31 +259,43 @@ function calcSito(sito, M){
   let sumPesoPct = 0;
   for(const a of DB.attivita){
     const pia = M.pi.find(p=>p.attivita_id===a.id)||{};
-    const avRows = M.av.filter(r=>r.attivita_id===a.id);
-    let frac=0, label="—";
+    const avInt = M.av.filter(r=>r.attivita_id===a.id && r.tipo!=="terzista");
+    const avTer = M.av.filter(r=>r.attivita_id===a.id && r.tipo==="terzista");
+    const prev = M.tp.find(t=>t.attivita_id===a.id);     // preventivo terzista (se previsto)
+    const haTerz = !!prev;
+    // frazione INTERNA (guida i costi interni)
+    let fracInt=0, label="—";
     if(a.tipo==="status"){
-      const last = avRows.sort((x,y)=>x.data<y.data?1:-1)[0];
+      const last = avInt.sort((x,y)=>x.data<y.data?1:-1)[0];
       label = last?.stato || "non iniziata";
-      frac = label==="completata"?1:0;
+      fracInt = label==="completata"?1:0;
     } else if(a.tipo==="piante"){
-      const piante = Math.max(0,...avRows.map(r=>r.piante||0));
-      const prev = pia.piante_previste||0;
-      frac = prev>0 ? Math.min(piante/prev,1) : 0;
-      label = piante+" / "+(prev||"?")+" piante";
+      const piante = Math.max(0,...avInt.map(r=>r.piante||0));
+      const pp = pia.piante_previste||0;
+      fracInt = pp>0 ? Math.min(piante/pp,1) : 0;
+      label = piante+" / "+(pp||"?")+" piante";
     } else {
-      const pct = Math.max(0,...avRows.map(r=>r.pct||0));
-      frac = pct/100; label = pct+" %";
+      const pct = Math.max(0,...avInt.map(r=>r.pct||0));
+      fracInt = pct/100; label = pct+" %";
     }
+    // frazione TERZISTA (guida il costo a corpo)
+    const pctTer = Math.max(0,...avTer.map(r=>r.pct||0));
+    const fracTer = pctTer/100;
+    // avanzamento COMPLESSIVO attività: media dei contributi attivi
+    const frac = haTerz ? (fracInt+fracTer)/2 : fracInt;
     const importi = M.cm.filter(c=>c.attivita_id===a.id).reduce((s,c)=>s+ +c.importo_totale,0);
     const oreuomo = M.ou.filter(r=>r.attivita_id===a.id).reduce((s,r)=>s+r.ore*(tarOp[r.operaio_id]||0),0);
     const macchine = M.mg.filter(r=>r.attivita_id===a.id&&r.presente).reduce((s,r)=>s+(tarMa[r.macchina_id]||0),0);
-    const terzisti = M.tg.filter(r=>r.attivita_id===a.id).reduce((s,r)=>s+r.ore*(tarTe[r.terzista_id]||0),0);
-    const materiali = importi*frac;
+    const materiali = importi*fracInt;                   // materiali interni maturano sulla % interna
+    const terzisti = haTerz ? (+prev.importo||0)*fracTer : 0;  // preventivo a corpo × % terzista
     const gg = M.ri.filter(r=>r.attivita_id===a.id).reduce((s,r)=>s+r.giorni,0);
-    res.attivita[a.id]={nome:a.nome,tipo:a.tipo,frac,label,oreuomo,macchine,materiali,terzisti,gg,
-      budget:(+pia.budget||0)+(+pia.extra_budget||0),peso:+pia.peso_pct||0,
+    const costoInterno = oreuomo+macchine+materiali;
+    res.attivita[a.id]={nome:a.nome,tipo:a.tipo,frac,fracInt,fracTer,haTerz,label,
+      oreuomo,macchine,materiali,terzisti,costoInterno,gg,
+      budget:(+pia.budget||0)+(+pia.extra_budget||0)+(haTerz?(+prev.importo||0):0),peso:+pia.peso_pct||0,
+      prevTerz:haTerz?(+prev.importo||0):0,
       inizio:pia.data_inizio_prevista,fine:pia.data_fine_prevista,
-      totale:oreuomo+macchine+materiali+terzisti};
+      totale:costoInterno+terzisti};
     sumPesoPct += (+pia.peso_pct||0)*frac*100;
     res.tot.oreuomo+=oreuomo;res.tot.macchine+=macchine;res.tot.materiali+=materiali;
     res.tot.terzisti+=terzisti;res.tot.gg_fermo+=gg;
@@ -297,7 +310,10 @@ function calcSito(sito, M){
 /* ---------------- COMPILAZIONE GIORNALIERA ---------------- */
 let C = null; // stato compilazione corrente
 function sitoCorrente(){ return isSuper() ? +($("#c-sito")?.value || P.sito_id || DB.siti[0].id) : P.sito_id }
-function rCompila(){
+async function rCompila(){
+  const sc=sitoCorrente();
+  const {data:prevTerz}=await sb.from("terzisti_preventivi").select("*").eq("sito_id",sc);
+  const TPREV=Object.fromEntries((prevTerz||[]).map(t=>[t.attivita_id,t]));
   const sitoSel = !isSuper() ? "" : `<div class="field"><label>Sito</label>
     <select id="c-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===P.sito_id?"selected":""}>${esc(s.nome)}</option>`).join("")}</select></div>`;
   C = {av:{},ou:[],mg:{},tg:[],ri:[]};
@@ -307,11 +323,18 @@ function rCompila(){
       <option>non iniziata</option><option>in corso</option><option>in revisione</option><option>completata</option></select></div>`;
     if(a.tipo==="piante") return `<div class="field"><label>${esc(a.nome)} — piante totali messe a dimora (cumulative)</label>
       <input type="number" min="0" inputmode="numeric" data-piante="${a.id}" placeholder="es. 1200"></div>`;
+    const hasT = !!TPREV[a.id];
+    const terzNome = hasT ? (DB.terzisti.find(t=>t.id===TPREV[a.id].terzista_id)?.nome||"terzista") : "";
+    const blocco = (cls,etich)=>`<div style="margin-bottom:8px">
+        <div style="font-size:12px;color:var(--mut);font-weight:600;margin-bottom:4px">${etich}</div>
+        <div class="fasce" data-fasce="${a.id}" data-tipo="${cls}">
+          <button type="button" class="fascia zero" data-v="">n/d</button>
+          ${FASCE.map(f=>`<button type="button" class="fascia" data-v="${f}">${f}%<small>${f-25}–${f}</small></button>`).join("")}
+        </div></div>`;
     return `<div class="field"><label>${esc(a.nome)} — fascia raggiunta</label>
-      <div class="fasce" data-fasce="${a.id}">
-        <button type="button" class="fascia zero" data-v="">n/d<small>oggi</small></button>
-        ${FASCE.map(f=>`<button type="button" class="fascia" data-v="${f}">${f}%<small>${f-25}–${f}</small></button>`).join("")}
-      </div></div>`;
+      ${blocco("interno", hasT?"Avanzamento INTERNO":"Avanzamento")}
+      ${hasT?blocco("terzista","Avanzamento TERZISTA — "+esc(terzNome)):""}
+    </div>`;
   }).join("");
   $("#pane-compila").innerHTML = `
   ${sitoSel}
@@ -333,10 +356,7 @@ function rCompila(){
     <div class="chip" style="margin-bottom:10px"><input type="checkbox" id="c-mg-zero"><span>Nessuna macchina presente oggi</span></div>
     <div id="c-mg"></div><button class="add" id="c-mg-add">+ Aggiungi macchina</button>
   </div>
-  <div class="card"><h2><span class="n">5</span>Terzisti</h2>
-    <div id="c-tg"></div><button class="add" id="c-tg-add">+ Aggiungi terzista</button>
-  </div>
-  <div class="card"><h2><span class="n">6</span>Ritardi / fermi</h2>
+  <div class="card"><h2><span class="n">5</span>Ritardi / fermi</h2>
     <div id="c-ri"></div><button class="add" id="c-ri-add">+ Segnala ritardo</button>
   </div>
   <div class="err" id="c-err"></div>
@@ -389,11 +409,16 @@ async function inviaCompilazione(){
   const ouZero=$("#c-ou-zero").checked, mgZero=$("#c-mg-zero").checked;
   if(!ouZero && ouRows.length===0) return err("#c-err","Ore personale: aggiungi almeno un operaio o spunta «Nessuna ora personale oggi».");
   if(!mgZero && mgRows.length===0) return err("#c-err","Macchine: aggiungi almeno una macchina o spunta «Nessuna macchina presente oggi».");
-  const ins = {av:[],ou:[],mg:[],tg:[],ri:[]};
+  const ins = {av:[],ou:[],mg:[],ri:[]};
   for(const a of DB.attivita){
-    if(a.tipo==="status"){const v=$(`[data-av="${a.id}"]`)?.value; if(v) ins.av.push({sito_id,attivita_id:a.id,data,compilatore:comp,stato:v});}
-    else if(a.tipo==="piante"){const v=+($(`[data-piante="${a.id}"]`)?.value||0); if(v>0) ins.av.push({sito_id,attivita_id:a.id,data,compilatore:comp,piante:v});}
-    else {const on=$(`[data-fasce="${a.id}"] .fascia.on`); const v=on?.dataset.v; if(v) ins.av.push({sito_id,attivita_id:a.id,data,compilatore:comp,pct:+v});}
+    if(a.tipo==="status"){const v=$(`[data-av="${a.id}"]`)?.value; if(v) ins.av.push({sito_id,attivita_id:a.id,data,compilatore:comp,stato:v,tipo:"interno"});}
+    else if(a.tipo==="piante"){const v=+($(`[data-piante="${a.id}"]`)?.value||0); if(v>0) ins.av.push({sito_id,attivita_id:a.id,data,compilatore:comp,piante:v,tipo:"interno"});}
+    else {
+      for(const grp of $$(`[data-fasce="${a.id}"]`)){
+        const on=grp.querySelector(".fascia.on"); const v=on?.dataset.v;
+        if(v) ins.av.push({sito_id,attivita_id:a.id,data,compilatore:comp,pct:+v,tipo:grp.dataset.tipo||"interno"});
+      }
+    }
   }
   for(const r of ouRows){const op=+r.querySelector(".ou-op").value,att=+r.querySelector(".ou-att").value||null,ore=+r.querySelector(".ou-ore").value;
     if(!op) return err("#c-err","Ore personale: seleziona l'operaio in ogni riga.");
@@ -401,10 +426,6 @@ async function inviaCompilazione(){
   for(const r of mgRows){const ma=+r.querySelector(".mg-ma").value,att=+r.querySelector(".mg-att").value||null;
     if(!ma) return err("#c-err","Macchine: seleziona la macchina in ogni riga.");
     ins.mg.push({sito_id,data,macchina_id:ma,attivita_id:att,presente:r.querySelector(".mg-p").checked,usata:r.querySelector(".mg-u").checked});}
-  for(const r of $$("#c-tg .dyn-row")){const te=+r.querySelector(".tg-te").value,att=+r.querySelector(".tg-att").value||null,
-    ore=+r.querySelector(".tg-ore").value||0, f=r.querySelector(".fascia.on")?.dataset.v;
-    if(!te) continue;
-    ins.tg.push({sito_id,data,terzista_id:te,attivita_id:att,ore,pct:f?+f:null});}
   for(const r of $$("#c-ri .dyn-row")){const att=+r.querySelector(".ri-att").value||null,gg=+r.querySelector(".ri-gg").value||0;
     if(gg>0) ins.ri.push({sito_id,data,attivita_id:att,giorni:gg,causa:r.querySelector(".ri-causa").value});}
   // scritture
@@ -413,7 +434,6 @@ async function inviaCompilazione(){
   if(ins.av.length)ops.push(sb.from("avanzamenti").insert(ins.av));
   if(ins.ou.length)ops.push(sb.from("ore_uomo").insert(ins.ou));
   if(ins.mg.length)ops.push(sb.from("macchine_giorno").insert(ins.mg));
-  if(ins.tg.length)ops.push(sb.from("terzisti_giorno").insert(ins.tg));
   if(ins.ri.length)ops.push(sb.from("ritardi").insert(ins.ri));
   const errs=(await Promise.all(ops)).filter(r=>r.error);
   if(e1||errs.length) return err("#c-err","Errore di salvataggio: riprova. Se persiste contatta la direzione.");
@@ -480,9 +500,9 @@ async function rSito(){
     }
     const overB = x.budget>0 && x.totale>x.budget;
     return `<div class="att-row">
-      <div class="t"><span>${esc(x.nome)}</span><span>${esc(x.label)} ${timePill}</span></div>
+      <div class="t"><span>${esc(x.nome)}</span><span>${x.haTerz&&x.tipo!=="status"?`${Math.round(x.fracInt*100)}%/${Math.round(x.fracTer*100)}% `:esc(x.label)+" "}${timePill}</span></div>
       <div class="bar"><i style="width:${Math.round(x.frac*100)}%"></i></div>
-      <div class="s"><span>Costo: <b>${eur(x.totale)}</b>${x.budget>0?` / budget ${eur(x.budget)}`:""}</span>
+      <div class="s"><span>Costo: <b>${eur(x.totale)}</b>${x.haTerz?` <span class="muted">(int. ${eur(x.costoInterno)} + terz. ${eur(x.terzisti)})</span>`:""}${x.budget>0?` / budget int. ${eur(x.budget)}`:""}</span>
         <span>${x.budget>0?`<span class="pill ${overB?"bad":"ok"}">${overB?"+":""}${eur(x.totale-x.budget)}</span>`:""}</span></div>
       ${x.budget>0?`<div class="bar"><i class="${overB?"over":""}" style="width:${Math.min(Math.round(x.totale/x.budget*100),100)}%"></i></div>`:""}
     </div>`;
@@ -500,8 +520,9 @@ async function rSito(){
     <tr><td>Ore personale</td><td>${eur(T.oreuomo)}</td></tr>
     <tr><td>Macchine</td><td>${eur(T.macchine)}</td></tr>
     <tr><td>Materiali (maturati)</td><td>${eur(T.materiali)}</td></tr>
-    <tr><td>Terzisti</td><td>${eur(T.terzisti)}</td></tr>
     <tr><td>Gasolio</td><td>${eur(T.gasolio)}</td></tr>
+    <tr><td style="border-top:2px solid var(--line)"><b>Costi interni</b></td><td style="border-top:2px solid var(--line)"><b>${eur(T.oreuomo+T.macchine+T.materiali+T.gasolio)}</b></td></tr>
+    <tr><td>Terzisti (a corpo)</td><td>${eur(T.terzisti)}</td></tr>
     <tr><td><b>Totale</b></td><td><b>${eur(T.totale)}</b></td></tr></table>
     <p class="muted" style="margin-top:8px">Giorni fermo cumulati: <b>${T.gg_fermo}</b></p>
   </div>`;
@@ -514,6 +535,7 @@ async function rDash(){
   const per = [];
   for(const s of DB.siti){ per.push({sito:s, R:calcSito(s, await loadMovimenti(s.id))}) }
   const tot = per.reduce((acc,{R})=>{for(const k of ["oreuomo","macchine","materiali","terzisti","gasolio","totale","gg_fermo","ha"])acc[k]=(acc[k]||0)+R.tot[k];return acc},{});
+  const totInterni = tot.oreuomo+tot.macchine+tot.materiali+tot.gasolio;
   const budPer = per.map(({R})=>Object.values(R.attivita).reduce((s,a)=>s+a.budget,0));
   const budTot = budPer.reduce((a,b)=>a+b,0);
   const rows = per.map(({sito,R},i)=>{
@@ -521,7 +543,7 @@ async function rDash(){
     return `<tr><td>${esc(sito.nome)}</td><td>${Math.round(R.tot.avz*100)}%</td>
     <td>${R.tot.ha.toFixed(1)}</td><td>${eur(R.tot.oreuomo)}</td><td>${eur(R.tot.macchine)}</td>
     <td>${eur(R.tot.materiali)}</td><td>${eur(R.tot.terzisti)}</td><td>${eur(R.tot.gasolio)}</td>
-    <td><b>${eur(R.tot.totale)}</b></td><td>${eur(b)}</td>
+    <td title="Interni ${eur(R.tot.oreuomo+R.tot.macchine+R.tot.materiali+R.tot.gasolio)} · Terzisti ${eur(R.tot.terzisti)}"><b>${eur(R.tot.totale)}</b></td><td>${eur(b)}</td>
     <td style="color:${sc>0&&b>0?'var(--red)':'inherit'}">${b>0?eur(sc):"—"}</td><td>${R.tot.gg_fermo}</td></tr>`}).join("");
   $("#pane-dash").innerHTML = `
   <div class="kpi">
@@ -529,10 +551,12 @@ async function rDash(){
     <div class="k"><b style="color:${tot.totale>budTot&&budTot>0?'var(--red)':'var(--forest)'}">${budTot>0?eur(budTot-tot.totale):"—"}</b><span>Budget residuo</span></div>
     <div class="k"><b>${tot.ha.toFixed(1)}</b><span>Ettari completati</span></div>
     <div class="k"><b>${tot.gg_fermo}</b><span>Giorni fermo</span></div>
+    <div class="k"><b>${eur(totInterni)}</b><span>di cui costi interni</span></div>
+    <div class="k"><b>${eur(tot.terzisti)}</b><span>di cui terzisti</span></div>
   </div>
   <div class="card"><h2>📊 Consolidamento 7 siti</h2><div class="scroll-x">
     <table class="grid"><tr><th>Sito</th><th>Avz</th><th>Ha</th><th>Personale</th><th>Macch</th><th>Mater</th><th>Terz</th><th>Gas</th><th>Totale</th><th>Budget</th><th>Scost</th><th>Fermo</th></tr>${rows}</table>
-  </div></div>
+  </div><p class="muted" style="margin-top:8px">Budget = interno (setup piano) + preventivi terzisti del sito. Passa sul Totale per vedere interni/terzisti.</p></div>
   <div class="card"><h2>Costi per sito (in pila)</h2><canvas id="ch-pila" height="220"></canvas></div>
   <div class="card"><h2>Gantt — piano per sito</h2>
     <div class="field"><label>Sito</label><select id="gantt-sito">${DB.siti.map(s=>`<option value="${s.id}">${esc(s.nome)}</option>`).join("")}</select></div>
@@ -611,6 +635,7 @@ async function rSetup(){
       <button class="btn btn-o btn-sm" data-s="operai">Operai</button>
       <button class="btn btn-o btn-sm" data-s="macchine">Macchine (aziendali)</button>
       <button class="btn btn-o btn-sm" data-s="terzisti">Terzisti</button>
+      <button class="btn btn-o btn-sm" data-s="prevterz">Preventivi terzisti</button>
       <button class="btn btn-o btn-sm" data-s="piano">Piano di progetto</button>
       <button class="btn btn-o btn-sm" data-s="materiali">Costi materiali</button>
     </div></div>
@@ -681,6 +706,34 @@ const SETUP = {
       else await sb.from("piano").insert(rec);
     }
     toast("Piano salvato ✓");SETUP.piano()};
+ },
+ async prevterz(){
+  const sid=+($("#pt-sito")?.value||DB.siti[0].id);
+  const {data:tp}=await sb.from("terzisti_preventivi").select("*").eq("sito_id",sid);
+  const terzSito=DB.terzisti.filter(t=>t.sito_id===sid);
+  const rows=DB.attivita.filter(a=>a.tipo!=="status").map(a=>{
+    const p=tp.find(x=>x.attivita_id===a.id)||{};
+    return `<div class="dyn-row" style="grid-template-columns:1.2fr 1.1fr .8fr" data-att="${a.id}" data-pid="${p.id||""}">
+      <b style="align-self:center;font-size:13px">${esc(a.nome)}</b>
+      <select class="pt-te"><option value="">— nessun terzista —</option>
+        ${terzSito.map(t=>`<option value="${t.id}" ${t.id===p.terzista_id?"selected":""}>${esc(t.nome)}</option>`).join("")}</select>
+      <input type="number" class="pt-imp" placeholder="preventivo €" value="${p.importo||""}">
+    </div>`}).join("");
+  $("#setup-body").innerHTML=`<div class="card"><h2>Preventivi terzisti (a corpo)</h2>
+    <div class="field"><label>Sito</label><select id="pt-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===sid?"selected":""}>${esc(s.nome)}</option>`).join("")}</select></div>
+    <p class="muted">Un terzista per attività. Il costo matura con la % di avanzamento "terzista" segnata in compilazione. Lascia "nessun terzista" se l'attività è solo interna.</p>
+    ${terzSito.length?"":'<div class="banner">Nessun terzista per questo sito: aggiungilo prima nella scheda Terzisti.</div>'}
+    ${rows}<button class="btn btn-p" id="pt-save">Salva preventivi</button></div>`;
+  $("#pt-sito").onchange=()=>SETUP.prevterz();
+  $("#pt-save").onclick=async()=>{
+    for(const r of $$("#setup-body [data-att]")){
+      const te=+r.querySelector(".pt-te").value, imp=+r.querySelector(".pt-imp").value||0, pid=r.dataset.pid, att=+r.dataset.att;
+      if(!te){ if(pid) await sb.from("terzisti_preventivi").delete().eq("id",+pid); continue; }
+      const rec={sito_id:sid,attivita_id:att,terzista_id:te,importo:imp};
+      if(pid) await sb.from("terzisti_preventivi").update(rec).eq("id",+pid);
+      else await sb.from("terzisti_preventivi").insert(rec);
+    }
+    toast("Preventivi salvati ✓");SETUP.prevterz()};
  },
  async materiali(){
   const sid=+($("#m-sito")?.value||DB.siti[0].id);
