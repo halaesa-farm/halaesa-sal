@@ -325,8 +325,8 @@ function rCompila(){
     <p class="muted" style="margin-bottom:12px">Facoltativo: indica solo le attività su cui c'è stato avanzamento. Per le fasce si segna la fascia <b>raggiunta a oggi</b> (cumulativa).</p>
     ${attHtml}
   </div>
-  <div class="card"><h2><span class="n">3</span>Ore uomo <span class="muted" style="text-transform:none">— obbligatorio (anche 0)</span></h2>
-    <div class="chip" style="margin-bottom:10px"><input type="checkbox" id="c-ou-zero"><span>Nessuna ora uomo oggi</span></div>
+  <div class="card"><h2><span class="n">3</span>Ore personale <span class="muted" style="text-transform:none">— obbligatorio (anche 0)</span></h2>
+    <div class="chip" style="margin-bottom:10px"><input type="checkbox" id="c-ou-zero"><span>Nessuna ora personale oggi</span></div>
     <div id="c-ou"></div><button class="add" id="c-ou-add">+ Aggiungi operaio</button>
   </div>
   <div class="card"><h2><span class="n">4</span>Macchine <span class="muted" style="text-transform:none">— obbligatorio</span></h2>
@@ -387,7 +387,7 @@ async function inviaCompilazione(){
   // obbligo ore uomo (anche zero) e macchine
   const ouRows=$$("#c-ou .dyn-row"), mgRows=$$("#c-mg .dyn-row");
   const ouZero=$("#c-ou-zero").checked, mgZero=$("#c-mg-zero").checked;
-  if(!ouZero && ouRows.length===0) return err("#c-err","Ore uomo: aggiungi almeno un operaio o spunta «Nessuna ora uomo oggi».");
+  if(!ouZero && ouRows.length===0) return err("#c-err","Ore personale: aggiungi almeno un operaio o spunta «Nessuna ora personale oggi».");
   if(!mgZero && mgRows.length===0) return err("#c-err","Macchine: aggiungi almeno una macchina o spunta «Nessuna macchina presente oggi».");
   const ins = {av:[],ou:[],mg:[],tg:[],ri:[]};
   for(const a of DB.attivita){
@@ -396,7 +396,7 @@ async function inviaCompilazione(){
     else {const on=$(`[data-fasce="${a.id}"] .fascia.on`); const v=on?.dataset.v; if(v) ins.av.push({sito_id,attivita_id:a.id,data,compilatore:comp,pct:+v});}
   }
   for(const r of ouRows){const op=+r.querySelector(".ou-op").value,att=+r.querySelector(".ou-att").value||null,ore=+r.querySelector(".ou-ore").value;
-    if(!op) return err("#c-err","Ore uomo: seleziona l'operaio in ogni riga.");
+    if(!op) return err("#c-err","Ore personale: seleziona l'operaio in ogni riga.");
     ins.ou.push({sito_id,data,operaio_id:op,attivita_id:att,ore:ore>=0?ore:0});}
   for(const r of mgRows){const ma=+r.querySelector(".mg-ma").value,att=+r.querySelector(".mg-att").value||null;
     if(!ma) return err("#c-err","Macchine: seleziona la macchina in ogni riga.");
@@ -497,7 +497,7 @@ async function rSito(){
   <div class="card"><h2>📍 ${esc(sito.nome)} — attività vs piano</h2>${rows}</div>
   <div class="card"><h2>Costi per categoria</h2>
     <table class="grid"><tr><th>Categoria</th><th>€</th></tr>
-    <tr><td>Ore uomo</td><td>${eur(T.oreuomo)}</td></tr>
+    <tr><td>Ore personale</td><td>${eur(T.oreuomo)}</td></tr>
     <tr><td>Macchine</td><td>${eur(T.macchine)}</td></tr>
     <tr><td>Materiali (maturati)</td><td>${eur(T.materiali)}</td></tr>
     <tr><td>Terzisti</td><td>${eur(T.terzisti)}</td></tr>
@@ -531,9 +531,13 @@ async function rDash(){
     <div class="k"><b>${tot.gg_fermo}</b><span>Giorni fermo</span></div>
   </div>
   <div class="card"><h2>📊 Consolidamento 7 siti</h2><div class="scroll-x">
-    <table class="grid"><tr><th>Sito</th><th>Avz</th><th>Ha</th><th>Uomo</th><th>Macch</th><th>Mater</th><th>Terz</th><th>Gas</th><th>Totale</th><th>Budget</th><th>Scost</th><th>Fermo</th></tr>${rows}</table>
+    <table class="grid"><tr><th>Sito</th><th>Avz</th><th>Ha</th><th>Personale</th><th>Macch</th><th>Mater</th><th>Terz</th><th>Gas</th><th>Totale</th><th>Budget</th><th>Scost</th><th>Fermo</th></tr>${rows}</table>
   </div></div>
   <div class="card"><h2>Costi per sito (in pila)</h2><canvas id="ch-pila" height="220"></canvas></div>
+  <div class="card"><h2>Gantt — piano per sito</h2>
+    <div class="field"><label>Sito</label><select id="gantt-sito">${DB.siti.map(s=>`<option value="${s.id}">${esc(s.nome)}</option>`).join("")}</select></div>
+    <div id="gantt-box"></div></div>
+  <div class="card"><h2>Heatmap avanzamento (sito × attività)</h2><div class="scroll-x" id="heat-box"></div></div>
   <div class="card"><h2>Esporta dati (CSV)</h2>
     <div class="row2">
       ${["avanzamenti","ore_uomo","macchine_giorno","terzisti_giorno","gasolio","ritardi","piano","costi_materiali","compilazioni"]
@@ -545,13 +549,43 @@ async function rDash(){
   if(chRef)chRef.destroy();
   chRef=new Chart($("#ch-pila"),{type:"bar",
     data:{labels:per.map(p=>p.sito.nome),
-      datasets:[["Ore uomo","oreuomo","#1F5C2E"],["Macchine","macchine","#6FA84A"],["Materiali","materiali","#C6DFA3"],["Terzisti","terzisti","#E8A33D"],["Gasolio","gasolio","#8D6E63"]]
+      datasets:[["Ore personale","oreuomo","#1F5C2E"],["Macchine","macchine","#6FA84A"],["Materiali","materiali","#C6DFA3"],["Terzisti","terzisti","#E8A33D"],["Gasolio","gasolio","#8D6E63"]]
         .map(([l,k,c])=>({label:l,data:per.map(p=>p.R.tot[k]),backgroundColor:c}))},
     options:{responsive:true,scales:{x:{stacked:true},y:{stacked:true}},plugins:{legend:{position:"bottom"}}}});
+  // GANTT (CSS, leggibile su mobile): barre piano + barra avanzamento
+  const drawGantt=(sid)=>{
+    const p=per.find(x=>x.sito.id===sid); if(!p)return;
+    const acts=DB.attivita.map(a=>p.R.attivita[a.id]).filter(x=>x.inizio&&x.fine);
+    if(!acts.length){$("#gantt-box").innerHTML=`<p class="muted">Nessuna data nel piano di questo sito.</p>`;return}
+    const t0=Math.min(...acts.map(x=>+new Date(x.inizio)));
+    const t1=Math.max(...acts.map(x=>+new Date(x.fine)));
+    const span=(t1-t0)||1, oggiT=+new Date(oggi());
+    const oggiPct=Math.min(Math.max((oggiT-t0)/span*100,0),100);
+    $("#gantt-box").innerHTML = acts.map(x=>{
+      const l=( +new Date(x.inizio)-t0)/span*100, w=Math.max((+new Date(x.fine)-+new Date(x.inizio))/span*100,2);
+      return `<div style="margin-bottom:10px">
+        <div style="font-size:12px;font-weight:700;display:flex;justify-content:space-between">
+          <span>${esc(x.nome)}</span><span class="muted">${x.inizio} → ${x.fine}</span></div>
+        <div style="position:relative;height:18px;background:var(--line);border-radius:4px">
+          <div style="position:absolute;left:${l}%;width:${w}%;height:100%;background:var(--lime);border-radius:4px"></div>
+          <div style="position:absolute;left:${l}%;width:${w*x.frac}%;height:100%;background:var(--forest);border-radius:4px"></div>
+        </div></div>`}).join("")
+      + `<div style="position:relative;height:0"><div style="position:absolute;left:${oggiPct}%;top:-${acts.length*28+10}px;height:${acts.length*28+10}px;border-left:2px dashed var(--gold)"></div></div>
+      <p class="muted" style="margin-top:6px">▮ chiaro = piano · ▮ scuro = avanzamento · linea oro = oggi</p>`;
+  };
+  $("#gantt-sito").onchange=e=>drawGantt(+e.target.value);
+  drawGantt(+$("#gantt-sito").value);
+  // HEATMAP sito × attività (avanzamento %)
+  const heatCell=f=>{const v=Math.round(f*100);
+    const bg=v===0?"#F0F2EC":v<26?"#DCE9CF":v<51?"#B7D69A":v<76?"#8CBF66":"#1F5C2E";
+    const fg=v>=76?"#fff":"var(--ink)";
+    return `<td style="background:${bg};color:${fg};text-align:center;font-weight:700">${v}</td>`};
+  $("#heat-box").innerHTML=`<table class="grid"><tr><th>Sito</th>${DB.attivita.map(a=>`<th title="${esc(a.nome)}">${esc(a.nome.slice(0,8))}</th>`).join("")}</tr>
+    ${per.map(({sito,R})=>`<tr><td>${esc(sito.nome)}</td>${DB.attivita.map(a=>heatCell(R.attivita[a.id].frac)).join("")}</tr>`).join("")}</table>`;
   // export
   $$("[data-csv]").forEach(b=>b.onclick=()=>exportCsv(b.dataset.csv));
   $("#csv-consol").onclick=()=>{
-    const head="Sito;Avanzamento %;Ha completati;Ore uomo;Macchine;Materiali;Terzisti;Gasolio;Totale;Budget;Scostamento;Giorni fermo";
+    const head="Sito;Avanzamento %;Ha completati;Ore personale;Macchine;Materiali;Terzisti;Gasolio;Totale;Budget;Scostamento;Giorni fermo";
     const lines=per.map(({sito,R},i)=>[sito.nome,Math.round(R.tot.avz*100),R.tot.ha.toFixed(1),R.tot.oreuomo,R.tot.macchine,Math.round(R.tot.materiali),R.tot.terzisti,R.tot.gasolio,Math.round(R.tot.totale),budPer[i],Math.round(R.tot.totale-budPer[i]),R.tot.gg_fermo].join(";"));
     dlCsv("consolidamento.csv",[head,...lines].join("\n"))};
 }
