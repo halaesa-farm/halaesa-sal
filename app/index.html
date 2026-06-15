@@ -162,8 +162,8 @@ table.grid td:first-child{text-align:left;font-weight:600}
 
 <script>
 /* ================== CONFIG — da compilare al setup ================== */
-const SUPABASE_URL = "https://urzmmnqwqvsltnepajeb.supabase.co";        // Settings > API > Project URL
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVyem1tbnF3cXZzbHRuZXBhamViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNjA2OTIsImV4cCI6MjA5NjczNjY5Mn0.y43iNoYikOiw3qaufjf9ltGPHsabeXcvovoDJwum2xU";   // Settings > API > anon public
+const SUPABASE_URL = "INCOLLA_QUI_URL";        // Settings > API > Project URL
+const SUPABASE_KEY = "INCOLLA_QUI_ANON_KEY";   // Settings > API > anon public
 /* ===================================================================== */
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -174,6 +174,7 @@ const eur = n => (n??0).toLocaleString("it-IT",{maximumFractionDigits:0})+" €"
 const oggi = () => new Date().toISOString().slice(0,10);
 let P = null;          // profilo: {id,nome,ruolo,super_user,sito_id,email}
 const isSuper = () => !!P?.super_user;
+const isReadOnly = () => !!P?.sola_lettura;
 let DB = {};           // anagrafiche in cache: siti, attivita, operai, macchine, terzisti
 const FASCE = [25,50,75,100];
 
@@ -210,16 +211,16 @@ async function start(){
   $("#who-nome").textContent = P.nome;
   const sitoNome = DB.siti.find(s=>s.id===P.sito_id)?.nome || "Tutti i siti";
   $("#who-ruolo").textContent = P.ruolo + " · " + sitoNome;
-  buildTabs(); show(isSuper() ? "dash" : "compila");
+  buildTabs(); show((isSuper()||isReadOnly()) ? "dash" : "compila");
 }
 
 /* ---------------- TABS / ROUTING ---------------- */
 const TABS = {
-  compila:{ic:"📝",l:"Compila",who:p=>true},
-  gasolio:{ic:"⛽",l:"Gasolio",who:p=>true},
-  sito:{ic:"📍",l:"Il mio sito",who:p=>!isSuper()&&p.sito_id},
-  dash:{ic:"📊",l:"Dashboard",who:p=>isSuper()},
-  setup:{ic:"⚙️",l:"Setup",who:p=>isSuper()},
+  compila:{ic:"📝",l:"Compila",who:p=>!isReadOnly()},
+  gasolio:{ic:"⛽",l:"Gasolio",who:p=>!isReadOnly()},
+  sito:{ic:"📍",l:"Il mio sito",who:p=>!isReadOnly()&&!isSuper()&&p.sito_id},
+  dash:{ic:"📊",l:"Dashboard",who:p=>isSuper()||isReadOnly()},
+  setup:{ic:"⚙️",l:"Setup",who:p=>isSuper()&&!isReadOnly()},
 };
 function buildTabs(){
   $("#tabs").innerHTML = Object.entries(TABS)
@@ -562,13 +563,13 @@ async function rDash(){
     <div class="field"><label>Sito</label><select id="gantt-sito">${DB.siti.map(s=>`<option value="${s.id}">${esc(s.nome)}</option>`).join("")}</select></div>
     <div id="gantt-box"></div></div>
   <div class="card"><h2>Heatmap avanzamento (sito × attività)</h2><div class="scroll-x" id="heat-box"></div></div>
-  <div class="card"><h2>Esporta dati (CSV)</h2>
+  ${isReadOnly()?"":`<div class="card"><h2>Esporta dati (CSV)</h2>
     <div class="row2">
       ${["avanzamenti","ore_uomo","macchine_giorno","terzisti_giorno","gasolio","ritardi","piano","costi_materiali","compilazioni"]
         .map(t=>`<button class="btn btn-o btn-sm" data-csv="${t}" style="margin-bottom:8px">${t.replace("_"," ")}</button>`).join("")}
       <button class="btn btn-g btn-sm" id="csv-consol" style="margin-bottom:8px">consolidamento</button>
     </div>
-  </div>`;
+  </div>`}`;
   // grafico pila
   if(chRef)chRef.destroy();
   chRef=new Chart($("#ch-pila"),{type:"bar",
@@ -606,9 +607,9 @@ async function rDash(){
     return `<td style="background:${bg};color:${fg};text-align:center;font-weight:700">${v}</td>`};
   $("#heat-box").innerHTML=`<table class="grid"><tr><th>Sito</th>${DB.attivita.map(a=>`<th title="${esc(a.nome)}">${esc(a.nome.slice(0,8))}</th>`).join("")}</tr>
     ${per.map(({sito,R})=>`<tr><td>${esc(sito.nome)}</td>${DB.attivita.map(a=>heatCell(R.attivita[a.id].frac)).join("")}</tr>`).join("")}</table>`;
-  // export
+  // export (assente per sola lettura)
   $$("[data-csv]").forEach(b=>b.onclick=()=>exportCsv(b.dataset.csv));
-  $("#csv-consol").onclick=()=>{
+  if($("#csv-consol"))$("#csv-consol").onclick=()=>{
     const head="Sito;Avanzamento %;Ha completati;Ore personale;Macchine;Materiali;Terzisti;Gasolio;Totale;Budget;Scostamento;Giorni fermo";
     const lines=per.map(({sito,R},i)=>[sito.nome,Math.round(R.tot.avz*100),R.tot.ha.toFixed(1),R.tot.oreuomo,R.tot.macchine,Math.round(R.tot.materiali),R.tot.terzisti,R.tot.gasolio,Math.round(R.tot.totale),budPer[i],Math.round(R.tot.totale-budPer[i]),R.tot.gg_fermo].join(";"));
     dlCsv("consolidamento.csv",[head,...lines].join("\n"))};
