@@ -466,7 +466,6 @@ function scadenzeSito(sitoId, D, R){
   const ord={scaduto:0,"5":1,"10":2,"20":3,nd_tempo:4,ok:5,completato:6,nd:7};
   const items=[];
   for(const si of D.sito_interventi.filter(x=>x.attivo)){
-    if(!si.scadenza) continue;
     const intv=DB.interventi.find(i=>i.id===si.intervento_id)||{};
     const p=R.perInt.find(x=>x.si_id===si.id)||{avz:0};
     const rit=D.ritardi.filter(r=>r.sito_intervento_id===si.id);
@@ -481,8 +480,9 @@ function scadenzeSito(sitoId, D, R){
   return items;
 }
 function renderScadenze(items, titolo, mostraSito, consentiRevoca){
-  if(!items.length) return "";
   const dIt=iso=>{const[a,m,g]=iso.split("-");return `${g}/${m}/${a}`;};
+  if(!items.length) return `<div class="card"><h2>${titolo}</h2>
+    <p class="muted" style="margin:6px 0">Nessun intervento attivo da mostrare. Qui compariranno gli interventi del Setup: imposta avvio lavori e scadenze per attivare gli avvisi sui tempi.</p></div>`;
   const allarmi=items.filter(i=>["scaduto","5","10","20"].includes(i.stato)).length;
   const rows=items.map(i=>{
     const st=STATI[i.stato]||STATI.nd;
@@ -591,7 +591,8 @@ async function rDash(){
   // categorie presenti in almeno un sito (per heatmap avanzamento sito×categoria)
   const catAvz = {}; // sito_id -> {cat_id: avz}
   all.forEach(({sito,R})=>{catAvz[sito.id]={};R.perCat.forEach(pc=>catAvz[sito.id][pc.categoria_id]=pc.avz);});
-  const catCols = DB.categorie.filter(c=>all.some(({sito})=>catAvz[sito.id][c.id]!==undefined));
+  let catCols = DB.categorie.filter(c=>all.some(({sito})=>catAvz[sito.id][c.id]!==undefined));
+  if(!catCols.length) catCols = DB.categorie; // nessun intervento attivo: mostra comunque la griglia
   const heatCell=f=>{ if(f===undefined) return `<td style="background:#E6E8E1;color:var(--mut)">—</td>`;
     const v=Math.round(f*100); const bg=f>=0.75?"#1F5C2E":f>=0.5?"#4E8A3A":f>=0.25?"#8CBF66":f>0?"#CFE3B4":"#EEE";
     const col=f>=0.5?"#fff":"#1A2418"; return `<td style="background:${bg};color:${col};text-align:center;font-weight:700">${v}%</td>`;};
