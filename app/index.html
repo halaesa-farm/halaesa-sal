@@ -133,6 +133,48 @@ table.grid td:first-child{text-align:left;font-weight:600}
 .sitobar .sb-site{font-size:18px;font-weight:800;color:var(--forest-d)}
 .sitobar select{font-size:17px;font-weight:800;color:var(--forest-d);background:var(--white);
   border:1.5px solid var(--moss);padding:8px 10px;width:auto;flex:1;max-width:340px}
+.cat-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.int-row{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0;border-top:1px solid var(--line)}
+.cost-r{display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:1px solid var(--line)}
+.cost-tot{font-size:16px;font-weight:800;color:var(--forest);border-bottom:none;border-top:2px solid var(--forest);margin-top:4px;padding-top:8px}
+.scad-row{padding:10px 0;border-bottom:1px solid #EEF1EA}
+.scad-row:last-of-type{border-bottom:none}
+.scad-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.scad-nome{font-weight:700;font-size:14px}
+.scad-badge{color:#fff;font-size:10px;font-weight:800;padding:3px 8px;border-radius:10px;white-space:nowrap;text-transform:uppercase;letter-spacing:.02em}
+.scad-meta{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--mut);margin:3px 0 6px}
+.scad-bar{position:relative;height:10px;background:var(--line);border-radius:5px;overflow:visible}
+.scad-fill{display:block;height:100%;background:var(--moss);border-radius:5px}
+.scad-today{position:absolute;top:-3px;width:2px;height:16px;background:var(--ink);border-radius:1px}
+.scad-today::after{content:"oggi";position:absolute;top:-13px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--ink);font-weight:700}
+.rit-note{font-size:12px;color:#9A3B2C;margin-top:5px}
+.rit-fm{color:#B8841F}
+.fm-list{margin-top:4px}
+.fm-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0;font-size:12px}
+.fm-rev{opacity:.55;text-decoration:line-through}
+.rev-btn{border:1px solid #B8841F;color:#B8841F;background:#fff;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600;white-space:nowrap;text-decoration:none}
+.scad-sco{font-size:12px;margin-top:5px}
+.sco{font-weight:600}
+.sco-bad{color:#C0392B}
+.sco-ok{color:#2E7D32}
+.banner-alert{background:#FBE9E5;border-left:4px solid #C0392B;color:#7A2418;font-weight:600}
+.cat-block{margin:14px 0}
+.cat-h{font-size:13px;font-weight:800;color:var(--forest);text-transform:uppercase;letter-spacing:.03em;
+  border-bottom:2px solid var(--lime);padding-bottom:5px;margin:0 0 10px}
+.int-block{margin:0 0 14px;padding-left:10px;border-left:3px solid #E3E7DD}
+.int-t{font-weight:700;font-size:14px;color:var(--ink);margin-bottom:7px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.sv-av{margin:0 0 10px}
+.sv-av>label{display:block;font-size:13px;color:var(--mut);margin-bottom:4px}
+.cp-piante{font-size:16px}
+.chk{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;margin:6px 0;cursor:pointer}
+.chk input{width:18px;height:18px}
+.chk2{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--mut)}
+.chk2 input{width:16px;height:16px}
+.int-head{display:flex;align-items:center;gap:8px;font-size:15px;cursor:pointer}
+.int-head input{width:18px;height:18px}
+.tag{font-size:10px;font-weight:800;background:var(--gold);color:#fff;padding:2px 7px;border-radius:10px;text-transform:uppercase;letter-spacing:.03em}
+.int-card{border:1px solid #E3E7DD}
+.sv-list{margin:6px 0}
 .effgrid{display:grid;gap:7px;min-width:560px}
 .effgrid .eh{font-size:10.5px;font-weight:800;color:var(--mut);text-transform:uppercase;
   letter-spacing:.02em;text-align:center;align-self:end;padding-bottom:3px;line-height:1.15}
@@ -221,16 +263,18 @@ async function start(){
   const {data:prof} = await sb.from("profili").select("*").eq("id",session.user.id).single();
   if(!prof){err("#login-err","Utente senza profilo: contattare la direzione.");await sb.auth.signOut();return}
   P = prof;
-  // anagrafiche
-  const [si,at,op,ma,te,pa] = await Promise.all([
+  // anagrafiche + lista master della gerarchia (categorie/interventi)
+  const [si,ca,inv,op,ma,pa,cr] = await Promise.all([
     sb.from("siti").select("*").order("id"),
-    sb.from("attivita").select("*").order("ordine"),
+    sb.from("categorie").select("*").order("ordine"),
+    sb.from("interventi").select("*").order("ordine"),
     sb.from("operai").select("*").eq("attivo",true).order("nome"),
     sb.from("macchine").select("*").eq("attivo",true).order("nome"),
-    sb.from("terzisti").select("*").eq("attivo",true).order("nome"),
     sb.from("parametri").select("*"),
+    sb.from("causali_ritardo").select("*").order("ordine"),
   ]);
-  DB = {siti:si.data||[], attivita:at.data||[], operai:op.data||[], macchine:ma.data||[], terzisti:te.data||[],
+  DB = {siti:si.data||[], categorie:ca.data||[], interventi:inv.data||[],
+        operai:op.data||[], macchine:ma.data||[], causali:cr.data||[],
         par:Object.fromEntries((pa.data||[]).map(p=>[p.chiave,+p.valore]))};
   $("#v-login").classList.add("hide");$("#v-app").classList.remove("hide");
   $("#who-nome").textContent = P.nome;
@@ -268,71 +312,80 @@ function show(k){
    - ore uomo = ore × tariffa; macchine = presenza × tariffa/g
    - gasolio = litri × prezzo sito; terzisti = ore × tariffa
    - ha completati = ettari_totali × Σ(peso × %)/10000           */
-async function loadMovimenti(sito_id){
+/* ---------------- DATI PER SITO + MOTORE COSTI GERARCHICO (Blocco 2) ---------------- */
+async function datiSito(sito_id){
   const q = t => sb.from(t).select("*").eq("sito_id",sito_id);
-  const [av,ou,mg,tg,ga,ri,pi,cm,tp] = await Promise.all([
-    q("avanzamenti"),q("ore_uomo"),q("macchine_giorno"),q("terzisti_giorno"),
-    q("gasolio"),q("ritardi"),
-    sb.from("piano").select("*").eq("sito_id",sito_id),
-    sb.from("costi_materiali").select("*").eq("sito_id",sito_id),
-    sb.from("terzisti_preventivi").select("*").eq("sito_id",sito_id),
+  const [si_int, sc, av, ap, ou, mg, ga, ri] = await Promise.all([
+    q("sito_interventi"), q("sito_categorie"),
+    q("avanzamenti"), q("avanz_piante"), q("ore_uomo"),
+    q("macchine_giorno"), q("gasolio"), q("ritardi"),
   ]);
-  return {av:av.data||[],ou:ou.data||[],mg:mg.data||[],tg:tg.data||[],ga:ga.data||[],ri:ri.data||[],pi:pi.data||[],cm:cm.data||[],tp:tp.data||[]};
-}
-function calcSito(sito, M){
-  const res = {attivita:{}, tot:{oreuomo:0,macchine:0,materiali:0,terzisti:0,gasolio:0,totale:0,gg_fermo:0,ha:0,avz:0}};
-  const tarOp = Object.fromEntries(DB.operai.map(o=>[o.id,o.tariffa_ora]));
-  const tarMa = Object.fromEntries(DB.macchine.map(m=>[m.id,m.tariffa_giorno]));
-  const tarTe = Object.fromEntries(DB.terzisti.map(t=>[t.id,t.tariffa_ora]));
-  let sumPesoPct = 0;
-  for(const a of DB.attivita){
-    const pia = M.pi.find(p=>p.attivita_id===a.id)||{};
-    const avInt = M.av.filter(r=>r.attivita_id===a.id && r.tipo!=="terzista");
-    const avTer = M.av.filter(r=>r.attivita_id===a.id && r.tipo==="terzista");
-    const prev = M.tp.find(t=>t.attivita_id===a.id);     // preventivo terzista (se previsto)
-    const haTerz = !!prev;
-    // frazione INTERNA (guida i costi interni)
-    let fracInt=0, label="—";
-    if(a.tipo==="status"){
-      const last = avInt.sort((x,y)=>x.data<y.data?1:-1)[0];
-      label = last?.stato || "non iniziata";
-      fracInt = label==="completata"?1:0;
-    } else if(a.tipo==="piante"){
-      const piante = Math.max(0,...avInt.map(r=>r.piante||0));
-      const pp = pia.piante_previste||0;
-      fracInt = pp>0 ? Math.min(piante/pp,1) : 0;
-      label = piante+" / "+(pp||"?")+" piante";
-    } else {
-      const pct = Math.max(0,...avInt.map(r=>r.pct||0));
-      fracInt = pct/100; label = pct+" %";
-    }
-    // frazione TERZISTA (guida il costo a corpo)
-    const pctTer = Math.max(0,...avTer.map(r=>r.pct||0));
-    const fracTer = pctTer/100;
-    // avanzamento COMPLESSIVO attività: media dei contributi attivi
-    const frac = haTerz ? (fracInt+fracTer)/2 : fracInt;
-    const importi = M.cm.filter(c=>c.attivita_id===a.id).reduce((s,c)=>s+ +c.importo_totale,0);
-    const oreuomo = M.ou.filter(r=>r.attivita_id===a.id).reduce((s,r)=>s+r.ore*(tarOp[r.operaio_id]||0),0);
-    const macchine = M.mg.filter(r=>r.attivita_id===a.id&&r.presente).reduce((s,r)=>s+(tarMa[r.macchina_id]||0),0);
-    const materiali = importi*fracInt;                   // materiali interni maturano sulla % interna
-    const terzisti = haTerz ? (+prev.importo||0)*fracTer : 0;  // preventivo a corpo × % terzista
-    const gg = M.ri.filter(r=>r.attivita_id===a.id).reduce((s,r)=>s+r.giorni,0);
-    const costoInterno = oreuomo+macchine+materiali;
-    res.attivita[a.id]={nome:a.nome,tipo:a.tipo,frac,fracInt,fracTer,haTerz,label,
-      oreuomo,macchine,materiali,terzisti,costoInterno,gg,
-      budget:(+pia.budget||0)+(+pia.extra_budget||0)+(haTerz?(+prev.importo||0):0),peso:+pia.peso_pct||0,
-      prevTerz:haTerz?(+prev.importo||0):0,
-      inizio:pia.data_inizio_prevista,fine:pia.data_fine_prevista,
-      totale:costoInterno+terzisti};
-    sumPesoPct += (+pia.peso_pct||0)*frac*100;
-    res.tot.oreuomo+=oreuomo;res.tot.macchine+=macchine;res.tot.materiali+=materiali;
-    res.tot.terzisti+=terzisti;res.tot.gg_fermo+=gg;
+  const siIds = (si_int.data||[]).map(x=>x.id);
+  let sv = [];
+  if(siIds.length){
+    const r = await sb.from("sottovoci").select("*").in("sito_intervento_id",siIds).order("ordine");
+    sv = r.data||[];
   }
-  res.tot.gasolio = M.ga.reduce((s,r)=>s+r.litri*(DB.par?.prezzo_gasolio||0),0);
-  res.tot.totale = res.tot.oreuomo+res.tot.macchine+res.tot.materiali+res.tot.terzisti+res.tot.gasolio;
-  res.tot.avz = sumPesoPct/10000;                         // frazione 0-1
-  res.tot.ha = (sito.ettari_totali||0)*res.tot.avz;
-  return res;
+  return {sito_interventi:si_int.data||[], sito_categorie:sc.data||[], sottovoci:sv,
+          avanzamenti:av.data||[], avanz_piante:ap.data||[], ore_uomo:ou.data||[],
+          macchine_giorno:mg.data||[], gasolio:ga.data||[], ritardi:ri.data||[]};
+}
+const MAXV = arr => arr.length ? Math.max(...arr) : 0;
+function calcSito(sito_id, D){
+  const sito = DB.siti.find(s=>s.id===sito_id) || {ettari_totali:0};
+  const prezzoGasolio = DB.par?.prezzo_gasolio || 0;
+  const tariffaOp = id => (DB.operai.find(o=>o.id===id)||{}).tariffa_ora || 0;
+  const tariffaMa = id => (DB.macchine.find(m=>m.id===id)||{}).tariffa_giorno || 0;
+  const attivi = D.sito_interventi.filter(si=>si.attivo);
+  // ---- INTERVENTO ----
+  const perInt = attivi.map(si=>{
+    const intv = DB.interventi.find(i=>i.id===si.intervento_id) || {};
+    let avz=0, budgetEff=0;
+    if(intv.tipo==="piante"){
+      const prev=+si.piante_previste||0;
+      const messe=MAXV(D.avanz_piante.filter(a=>a.sito_intervento_id===si.id).map(a=>+a.piante||0));
+      avz = prev>0?Math.min(messe/prev,1):0;
+      budgetEff = prev*(+si.costo_unitario||0);
+    } else {
+      const svs=D.sottovoci.filter(sv=>sv.sito_intervento_id===si.id);
+      if(svs.length){
+        let sum=0;
+        for(const sv of svs) sum += MAXV(D.avanzamenti.filter(a=>a.sottovoce_id===sv.id).map(a=>+a.pct||0))/100;
+        avz=sum/svs.length;
+      }
+      budgetEff=+si.budget||0;
+    }
+    const costoBudget=budgetEff*avz;
+    const ore=D.ore_uomo.filter(o=>o.sito_intervento_id===si.id)
+                .reduce((s,o)=>s+(+o.ore||0)*tariffaOp(o.operaio_id),0);
+    return {si_id:si.id,intervento_id:si.intervento_id,categoria_id:intv.categoria_id,
+            nome:intv.nome,modalita:si.modalita,tipo:intv.tipo,avz,budgetEff,costoBudget,ore,costoInt:costoBudget+ore};
+  });
+  // ---- CATEGORIA (media interventi presenti) ----
+  const catMap={};
+  for(const p of perInt){(catMap[p.categoria_id]=catMap[p.categoria_id]||{sum:0,n:0}).sum+=p.avz;catMap[p.categoria_id].n++;}
+  const perCat=Object.entries(catMap).map(([cid,v])=>({categoria_id:+cid,avz:v.n?v.sum/v.n:0,nInt:v.n}));
+  // ---- SITO (pesi categoria, ricalibrati sui presenti) ----
+  let avzPesato=0,pesoTot=0;
+  for(const c of perCat){
+    const w=(D.sito_categorie.find(x=>x.categoria_id===c.categoria_id)||{}).peso_pct||0;
+    avzPesato+=(w/100)*c.avz; pesoTot+=w/100;
+  }
+  const avz=pesoTot>0?avzPesato/pesoTot:0;
+  const ettari=(+sito.ettari_totali||0)*avz;
+  // ---- COSTI ----
+  let bIn=0,bTe=0,cIn=0,cTe=0,ore=0;
+  for(const p of perInt){
+    if(p.modalita==="conto_terzi"){bTe+=p.budgetEff;cTe+=p.costoBudget;}
+    else{bIn+=p.budgetEff;cIn+=p.costoBudget;}
+    ore+=p.ore;
+  }
+  const macchine=D.macchine_giorno.filter(m=>m.presente).reduce((s,m)=>s+tariffaMa(m.macchina_id),0);
+  const gasolio=D.gasolio.reduce((s,g)=>s+(+g.litri||0),0)*prezzoGasolio;
+  const gg_fermo=D.ritardi.reduce((s,r)=>s+(+r.giorni||0),0);
+  const interno=cIn+ore+macchine+gasolio, terzisti=cTe, totale=interno+terzisti, budgetTot=bIn+bTe;
+  return {avz,avzPesato,pesoTot,ettari,perInt,perCat,gg_fermo,
+    costi:{costoMatInhouse:cIn,costoMatTerzi:cTe,ore,macchine,gasolio,interno,terzisti,totale,budgetTot,budgetInhouse:bIn,budgetTerzi:bTe}};
 }
 
 /* ---------------- COMPILAZIONE GIORNALIERA ---------------- */
@@ -366,398 +419,422 @@ function confermaSito(sito_id,data){
     m.querySelector("#m-no").onclick=()=>{m.classList.add("hide");res(false)};
   });
 }
-async function rCompila(){
-  const sc=sitoCorrente();
-  const {data:prevTerz}=await sb.from("terzisti_preventivi").select("*").eq("sito_id",sc);
-  const TPREV=Object.fromEntries((prevTerz||[]).map(t=>[t.attivita_id,t]));
-  C = {av:{},ou:[],mg:{},tg:[],ri:[]};
-  const attHtml = DB.attivita.map(a=>{
-    if(a.tipo==="status") return `<div class="field"><label>${esc(a.nome)}</label>
-      <select data-av="${a.id}"><option value="">—</option>
-      <option>non iniziata</option><option>in corso</option><option>in revisione</option><option>completata</option></select></div>`;
-    if(a.tipo==="piante") return `<div class="field"><label>${esc(a.nome)} — piante totali messe a dimora (cumulative)</label>
-      <input type="number" min="0" inputmode="numeric" data-piante="${a.id}" placeholder="es. 1200"></div>`;
-    const hasT = !!TPREV[a.id];
-    const terzNome = hasT ? (DB.terzisti.find(t=>t.id===TPREV[a.id].terzista_id)?.nome||"terzista") : "";
-    const blocco = (cls,etich)=>`<div style="margin-bottom:8px">
-        <div style="font-size:12px;color:var(--mut);font-weight:600;margin-bottom:4px">${etich}</div>
-        <div class="fasce" data-fasce="${a.id}" data-tipo="${cls}">
-          <button type="button" class="fascia zero" data-v="">n/d</button>
-          ${FASCE.map(f=>`<button type="button" class="fascia" data-v="${f}">${f}%<small>${f-25}–${f}</small></button>`).join("")}
-        </div></div>`;
-    return `<div class="field"><label>${esc(a.nome)} — fascia raggiunta</label>
-      ${blocco("interno", hasT?"Avanzamento INTERNO":"Avanzamento")}
-      ${hasT?blocco("terzista","Avanzamento TERZISTA — "+esc(terzNome)):""}
-    </div>`;
+/* ---------------- COMPILA / GASOLIO / SITO / DASH (ricostruiti nei Blocchi 4-5) ---------------- */
+function stubPane(pane,titolo,blocco){
+  $(pane).innerHTML=`<div class="card"><h2>${titolo}</h2>
+    <p class="muted">Questa sezione viene ricostruita sul nuovo modello gerarchico nel <b>${blocco}</b>.
+    Per ora è disponibile il <b>Setup</b>, dove si definisce la struttura di ogni sito.</p></div>`;
+}
+/* ====================== VISTE & DASHBOARD (Blocco 5) ====================== */
+const catNome = id => (DB.categorie.find(x=>x.id===id)||{}).nome || "?";
+const pillCol = f => f>=0.75?"ok":f>=0.25?"late":"bad";
+const costRow = (l,v,tot) => `<div class="cost-r ${tot?'cost-tot':''}"><span>${l}</span><b>${eur(v)}</b></div>`;
+/* ---- Scadenze / gantt a scadenze ---- */
+function statoScadenza(avvio, scadenza, oggiStr, avz, prorogaGiorni){
+  if(avz>=1) return {stato:"completato", proroga:prorogaGiorni||0};
+  if(!scadenza) return {stato:"nd"};
+  const D=d=>new Date(d+"T00:00:00"), gg=(a,b)=>Math.round((D(a)-D(b))/86400000);
+  const addgg=(d,n)=>{const x=D(d);x.setDate(x.getDate()+n);return x.toISOString().slice(0,10);};
+  const P=prorogaGiorni||0;
+  const scadEff = P>0 ? addgg(scadenza,P) : scadenza;
+  const rim=gg(scadEff,oggiStr);
+  let stato, frac=null;
+  if(rim<0) stato="scaduto";
+  else if(!avvio) stato="nd_tempo";
+  else { const tot=gg(scadEff,avvio); frac=tot>0?rim/tot:0;
+    stato = frac<=0.05?"5": frac<=0.10?"10": frac<=0.20?"20":"ok"; }
+  // scostamento reale (forecast lineare): giorni oltre/sotto la scadenza rettificata
+  let scostamento=null;
+  if(avvio && avz>0 && avz<1){
+    const elapsed=gg(oggiStr,avvio);
+    if(elapsed>0){ const totForecast=elapsed/avz, totEff=gg(scadEff,avvio);
+      scostamento=Math.round(totForecast-totEff); }
+  }
+  return {stato, rim, ritardoGiorni:rim<0?-rim:0, frac, scadEff, proroga:P, scostamento};
+}
+const STATI = {
+  scaduto:{l:"SCADUTO",c:"#8E2820"}, "5":{l:"≤5% tempo",c:"#C0392B"},
+  "10":{l:"≤10% tempo",c:"#E07B39"}, "20":{l:"≤20% tempo",c:"#E8A33D"},
+  ok:{l:"in tempo",c:"#1F5C2E"}, completato:{l:"completato",c:"#8CBF66"},
+  nd_tempo:{l:"manca avvio sito",c:"#6B7565"}, nd:{l:"—",c:"#9aa39a"}
+};
+function scadenzeSito(sitoId, D, R){
+  const avvio=(DB.siti.find(s=>s.id===sitoId)||{}).data_avvio;
+  const ord={scaduto:0,"5":1,"10":2,"20":3,nd_tempo:4,ok:5,completato:6,nd:7};
+  const items=[];
+  for(const si of D.sito_interventi.filter(x=>x.attivo)){
+    if(!si.scadenza) continue;
+    const intv=DB.interventi.find(i=>i.id===si.intervento_id)||{};
+    const p=R.perInt.find(x=>x.si_id===si.id)||{avz:0};
+    const rit=D.ritardi.filter(r=>r.sito_intervento_id===si.id);
+    const proroga=rit.filter(r=>r.forza_maggiore && !r.proroga_revocata).reduce((s,r)=>s+(+r.giorni||0),0);
+    const ritFM=rit.filter(r=>r.forza_maggiore);
+    const ritImput=rit.filter(r=>!r.forza_maggiore);
+    const st=statoScadenza(avvio, si.scadenza, oggi(), p.avz, proroga);
+    items.push(Object.assign({nome:intv.nome, categoria:catNome(intv.categoria_id), avz:p.avz,
+      scadenza:si.scadenza, ritardi:rit, ritFM, ritImput}, st));
+  }
+  items.sort((a,b)=>(ord[a.stato]-ord[b.stato])||((a.rim??1e9)-(b.rim??1e9)));
+  return items;
+}
+function renderScadenze(items, titolo, mostraSito, consentiRevoca){
+  if(!items.length) return "";
+  const dIt=iso=>{const[a,m,g]=iso.split("-");return `${g}/${m}/${a}`;};
+  const allarmi=items.filter(i=>["scaduto","5","10","20"].includes(i.stato)).length;
+  const rows=items.map(i=>{
+    const st=STATI[i.stato]||STATI.nd;
+    const elapsed=(i.frac!=null)?Math.min(Math.max(1-i.frac,0),1):(i.stato==="scaduto"?1:0);
+    const tempo = i.stato==="scaduto"?`scaduto da ${i.ritardoGiorni} gg`
+               : i.stato==="completato"?"completato"
+               : i.rim!=null?`tra ${i.rim} gg`:"";
+    const pror = i.proroga>0 ? ` · <span style="color:#B8841F">+${i.proroga}gg proroga → ${dIt(i.scadEff)}</span>` : "";
+    const sco = i.scostamento;
+    const scoTxt = sco==null ? "" :
+      sco>2 ? `<span class="sco sco-bad">ritardo reale stimato +${sco} gg</span>` :
+      sco<-2 ? `<span class="sco sco-ok">margine stimato ${-sco} gg</span>` :
+               `<span class="sco">in linea col passo</span>`;
+    const ritFM=i.ritFM||[];
+    const ritImp=i.ritImput||[];
+    let ritHtml="";
+    if(ritFM.length){
+      const voci=ritFM.map(r=>{
+        const rev=r.proroga_revocata;
+        const btn=consentiRevoca?`<button class="rev-btn" onclick="revocaProroga(${r.id},${rev?'false':'true'})">${rev?'ripristina':'revoca'}</button>`:'';
+        return `<div class="fm-item${rev?' fm-rev':''}"><span>${esc(r.causa||'forza maggiore')} · ${r.giorni} gg${rev?' — proroga revocata':''}</span>${btn}</div>`;
+      }).join("");
+      ritHtml+=`<div class="rit-note rit-fm">↪ Proroga forza maggiore attiva: ${i.proroga} gg<div class="fm-list">${voci}</div></div>`;
+    }
+    if(ritImp.length){ const g=ritImp.reduce((s,r)=>s+(+r.giorni||0),0);
+      const cs=[...new Set(ritImp.map(r=>r.causa).filter(Boolean))].join(", ");
+      ritHtml+=`<div class="rit-note">⚠ Ritardo imputabile: ${g} gg${cs?` — ${esc(cs)}`:''}</div>`; }
+    return `<div class="scad-row">
+      <div class="scad-top">
+        <span class="scad-nome">${esc(i.nome)}${mostraSito&&i.sito?` <span class="muted">· ${esc(i.sito)}</span>`:''}</span>
+        <span class="scad-badge" style="background:${st.c}">${st.l}</span></div>
+      <div class="scad-meta"><span class="muted">${esc(i.categoria)}</span>
+        <span>Avanz. ${Math.round(i.avz*100)}% · scad. ${i.scadenza?dIt(i.scadenza):"—"}${pror}${tempo?" · "+tempo:""}</span></div>
+      <div class="scad-bar"><i class="scad-fill" style="width:${Math.round(i.avz*100)}%"></i>
+        ${(i.frac!=null||i.stato==="scaduto")?`<span class="scad-today" style="left:${Math.round(elapsed*100)}%"></span>`:''}</div>
+      ${scoTxt?`<div class="scad-sco">${scoTxt}</div>`:''}
+      ${ritHtml}</div>`;
   }).join("");
+  const banner=allarmi?`<div class="banner banner-alert">⏰ ${allarmi} ${allarmi===1?"intervento richiede attenzione sulle scadenze":"interventi richiedono attenzione sulle scadenze"}</div>`:'';
+  return `<div class="card"><h2>${titolo}</h2>${banner}${rows}
+    <p class="muted" style="font-size:11.5px;margin-top:8px">Barra = avanzamento; segno verticale = "oggi" sulla finestra avvio→scadenza (rettificata con le proroghe). Lo scostamento reale stima la fine al ritmo attuale.</p></div>`;
+}
+
+window.revocaProroga = async (id, val) => {
+  const {error}=await sb.from("ritardi").update({proroga_revocata:val}).eq("id",id);
+  if(error) return toast("Errore");
+  toast(val?"Proroga revocata":"Proroga ripristinata");
+  rDash();
+};
+async function calcTutti(){
+  const out=[];
+  for(const s of DB.siti){ const D=await datiSito(s.id); out.push({sito:s, D, R:calcSito(s.id,D)}); }
+  return out;
+}
+
+async function rSito(){
+  const sito = (!isSuper() && P.sito_id) ? P.sito_id : sitoCorrente();
+  const s = DB.siti.find(x=>x.id===sito) || {nome:"—",ettari_totali:0};
+  const D = await datiSito(sito); const R = calcSito(sito,D); const c=R.costi;
+  const scad = scadenzeSito(sito, D, R);
+  const catsHtml = R.perCat.slice().sort((a,b)=>a.categoria_id-b.categoria_id).map(pc=>{
+    const ints=R.perInt.filter(p=>p.categoria_id===pc.categoria_id);
+    return `<div class="card" style="padding:12px">
+      <div class="cat-row"><b>${esc(catNome(pc.categoria_id))}</b><span class="pill ${pillCol(pc.avz)}">${Math.round(pc.avz*100)}%</span></div>
+      ${ints.map(p=>`<div class="int-row"><span>${esc(p.nome)}${p.modalita==="conto_terzi"?' <span class="tag">terzi</span>':''}</span>
+        <span class="muted">${Math.round(p.avz*100)}% · ${eur(p.costoInt)}</span></div>`).join("")}
+    </div>`;}).join("");
+  $("#pane-sito").innerHTML=`
+   <div class="kpi">
+     <div class="k"><b>${Math.round(R.avz*100)}%</b><span>Avanzamento sito</span></div>
+     <div class="k"><b>${(R.ettari||0).toLocaleString("it-IT",{maximumFractionDigits:1})}</b><span>Ettari completati / ${s.ettari_totali}</span></div>
+     <div class="k"><b>${eur(c.totale)}</b><span>Costo a oggi</span></div>
+     <div class="k"><b>${eur(c.budgetTot)}</b><span>Budget materiali/preventivi</span></div>
+   </div>
+   <div class="card"><h2>📍 ${esc(s.nome)} — avanzamento per categoria</h2>
+     ${R.pesoTot && Math.abs(R.pesoTot-1)>0.001?`<div class="banner">I pesi delle categorie sommano ${Math.round(R.pesoTot*100)}% (ricalibrati automaticamente sui presenti).</div>`:""}
+     ${catsHtml||'<p class="muted">Nessun intervento attivo: configura il sito nel Setup.</p>'}
+   </div>
+   ${renderScadenze(scad,"Scadenze e ritardi",false)}
+   <div class="card"><h2>Costi</h2>
+     ${costRow("Materiali (in house)",c.costoMatInhouse)}
+     ${costRow("Conto terzi (preventivi)",c.costoMatTerzi)}
+     ${costRow("Ore personale",c.ore)}
+     ${costRow("Macchine",c.macchine)}
+     ${costRow("Gasolio",c.gasolio)}
+     ${costRow("TOTALE",c.totale,true)}
+     <p class="muted" style="margin-top:8px">Budget pianificato (materiali + preventivi): <b>${eur(c.budgetTot)}</b>. Ore, macchine e gasolio sono consuntivo che si aggiunge al budget.</p>
+     <p class="muted">Giorni fermo cumulati: <b>${R.gg_fermo}</b></p>
+   </div>`;
+}
+
+let chRef=null;
+async function rDash(){
+  const all = await calcTutti();
+  let T={totale:0,interno:0,terzisti:0,ettari:0,budget:0,fermo:0,ettariTot:0};
+  let scadAll=[];
+  for(const {sito,D,R} of all){ scadenzeSito(sito.id,D,R).forEach(i=>scadAll.push(Object.assign({sito:sito.nome},i))); }
+  const ordS={scaduto:0,'5':1,'10':2,'20':3,nd_tempo:4,ok:5,completato:6,nd:7};
+  scadAll.sort((a,b)=>(ordS[a.stato]-ordS[b.stato])||((a.rim??1e9)-(b.rim??1e9)));
+  for(const {sito,R} of all){const c=R.costi;T.totale+=c.totale;T.interno+=c.interno;T.terzisti+=c.terzisti;T.ettari+=R.ettari;T.budget+=c.budgetTot;T.fermo+=R.gg_fermo;T.ettariTot+=(+sito.ettari_totali||0);}
+  // consolidamento
+  const cons = all.map(({sito,R})=>`<tr><td>${esc(sito.nome)}</td>
+    <td>${Math.round(R.avz*100)}%</td><td>${R.ettari.toLocaleString("it-IT",{maximumFractionDigits:1})}</td>
+    <td>${eur(R.costi.interno)}</td><td>${eur(R.costi.terzisti)}</td>
+    <td title="materiali interni e preventivi maturati">${eur(R.costi.totale)}</td><td>${eur(R.costi.budgetTot)}</td></tr>`).join("");
+  // categorie presenti in almeno un sito (per heatmap avanzamento sito×categoria)
+  const catAvz = {}; // sito_id -> {cat_id: avz}
+  all.forEach(({sito,R})=>{catAvz[sito.id]={};R.perCat.forEach(pc=>catAvz[sito.id][pc.categoria_id]=pc.avz);});
+  const catCols = DB.categorie.filter(c=>all.some(({sito})=>catAvz[sito.id][c.id]!==undefined));
+  const heatCell=f=>{ if(f===undefined) return `<td style="background:#E6E8E1;color:var(--mut)">—</td>`;
+    const v=Math.round(f*100); const bg=f>=0.75?"#1F5C2E":f>=0.5?"#4E8A3A":f>=0.25?"#8CBF66":f>0?"#CFE3B4":"#EEE";
+    const col=f>=0.5?"#fff":"#1A2418"; return `<td style="background:${bg};color:${col};text-align:center;font-weight:700">${v}%</td>`;};
+  const heat = `<table class="grid"><tr><th>Sito</th>${catCols.map(c=>`<th title="${esc(c.nome)}" style="text-align:center">${esc(c.nome.slice(0,9))}</th>`).join("")}</tr>
+    ${all.map(({sito})=>`<tr><td>${esc(sito.nome)}</td>${catCols.map(c=>heatCell(catAvz[sito.id][c.id])).join("")}</tr>`).join("")}</table>`;
+  // EFFICIENZA (indicatori onesti nel nuovo modello)
+  const eff=all.map(({sito,R})=>({nome:sito.nome,avz:R.avz,eurHa:R.ettari>0?R.costi.totale/R.ettari:null,fermo:R.gg_fermo}));
+  const haV=eff.map(e=>e.eurHa).filter(v=>v!=null); const haMin=Math.min(...haV,0),haMax=Math.max(...haV,1);
+  const fMax=Math.max(1,...eff.map(e=>e.fermo));
+  const C={ott:"#1F5C2E",buono:"#8CBF66",att:"#E8A33D",crit:"#C0392B"};
+  const colScala=(v,lo,hi,inv)=>{if(v==null||!isFinite(v))return null;let t=(v-lo)/((hi-lo)||1);t=Math.min(Math.max(t,0),1);if(inv)t=1-t;return t>=0.75?C.ott:t>=0.5?C.buono:t>=0.25?C.att:C.crit;};
+  const tile=(val,bg,sub)=>bg==null?`<div class="tile nd"><b>n/d</b><span>${sub||""}</span></div>`:`<div class="tile" style="background:${bg}"><b>${val}</b><span>${sub||""}</span></div>`;
+  const effHead=`<div class="effgrid" style="grid-template-columns:1.3fr repeat(3,1fr)">`+
+    ["Sito","Avanz.","€/ha","Giorni<br>fermo"].map((h,i)=>`<div class="eh" style="${i==0?'text-align:left':''}">${h}</div>`).join("");
+  const effBody=eff.map(e=>`<div class="es">${esc(e.nome)}</div>`
+    +tile(Math.round(e.avz*100)+"%",colScala(e.avz*100,0,100,false))
+    +tile(e.eurHa!=null?Math.round(e.eurHa).toLocaleString("it-IT"):null,colScala(e.eurHa,haMin,haMax,true),"€")
+    +tile(e.fermo,colScala(e.fermo,0,fMax,true),"gg")).join("");
+  $("#pane-dash").innerHTML=`
+   <div class="kpi">
+     <div class="k"><b>${eur(T.totale)}</b><span>Costo totale portfolio</span></div>
+     <div class="k"><b>${eur(T.terzisti)}</b><span>di cui conto terzi</span></div>
+     <div class="k"><b>${T.ettari.toLocaleString("it-IT",{maximumFractionDigits:1})}/${T.ettariTot}</b><span>Ettari completati</span></div>
+     <div class="k"><b>${eur(T.budget)}</b><span>Budget materiali/preventivi</span></div>
+   </div>
+   ${renderScadenze(scadAll,"Scadenze portfolio (gantt a scadenze)",true,!isReadOnly())}
+   <div class="card"><h2>Consolidamento 7 siti</h2><div class="scroll-x">
+     <table class="grid"><tr><th>Sito</th><th>Avz.</th><th>Ettari</th><th>Interno</th><th>Conto terzi</th><th>Totale</th><th>Budget</th></tr>${cons}</table>
+   </div><p class="muted" style="margin-top:8px">Il totale include ore/macchine/gasolio; il budget è solo materiali e preventivi.</p></div>
+   <div class="card"><h2>Heatmap avanzamento (sito × categoria)</h2><div class="scroll-x">${heat}</div></div>
+   <div class="card"><h2>Efficienza dei siti a confronto</h2>
+     <p class="muted" style="margin-bottom:12px">Indicatori confrontabili tra siti. Verde = buono, rosso = critico. €/ha e giorni fermo: colore relativo al portfolio (più basso = meglio).</p>
+     <div class="scroll-x"><div id="eff-box">${effHead}${effBody}</div></div>
+     <div class="efflegend"><span><span class="sw" style="background:#1F5C2E"></span>ottimo</span><span><span class="sw" style="background:#8CBF66"></span>buono</span><span><span class="sw" style="background:#E8A33D"></span>attenzione</span><span><span class="sw" style="background:#C0392B"></span>critico</span><span><span class="sw" style="background:#E6E8E1"></span>n/d</span></div>
+   </div>
+   ${isReadOnly()?"":`<div class="card"><h2>Esporta dati (CSV)</h2><div class="row2">
+     ${["categorie","interventi","sito_interventi","sottovoci","sito_categorie","avanzamenti","avanz_piante","ore_uomo","macchine_giorno","gasolio","ritardi"].map(t=>`<button class="btn btn-o btn-sm" data-csv="${t}" style="margin-bottom:8px">${t.replace(/_/g," ")}</button>`).join("")}
+     <button class="btn btn-g btn-sm" id="csv-consol" style="margin-bottom:8px">consolidamento</button></div></div>`}`;
+  $$("[data-csv]").forEach(b=>b.onclick=()=>exportCsv(b.dataset.csv));
+  if($("#csv-consol"))$("#csv-consol").onclick=()=>{
+    const rows=[["sito","avanzamento_pct","ettari_completati","costo_interno","costo_conto_terzi","costo_totale","budget"]];
+    all.forEach(({sito,R})=>rows.push([sito.nome,Math.round(R.avz*100),R.ettari.toFixed(2),R.costi.interno,R.costi.terzisti,R.costi.totale,R.costi.budgetTot]));
+    dlCsv("consolidamento.csv",rows.map(r=>r.join(",")).join("\n"));
+  };
+}
+async function exportCsv(table){
+  const {data}=await sb.from(table).select("*");
+  if(!data||!data.length)return toast("Nessun dato da esportare");
+  const cols=Object.keys(data[0]);
+  const csv=[cols.join(","),...data.map(r=>cols.map(c=>JSON.stringify(r[c]??"")).join(","))].join("\n");
+  dlCsv(table+".csv",csv);
+}
+function dlCsv(name,content){
+  const blob=new Blob([content],{type:"text/csv"});const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);a.download=name;a.click();
+}
+
+
+/* ====================== COMPILAZIONE (Blocco 4) ====================== */
+let CC = null; // contesto: {sito, D}
+function fasceWidget(cur){
+  return `<div class="fasce">
+    <button type="button" class="fascia zero ${!cur?'on':''}" data-v="0">n/d</button>
+    ${FASCE.map(v=>`<button type="button" class="fascia ${cur===v?'on':''}" data-v="${v}">${v}%<small>${v-25}–${v}</small></button>`).join("")}
+  </div>`;
+}
+async function rCompila(){
+  const sito = sitoCorrente();
+  const D = await datiSito(sito);
+  CC = {sito, D};
+  const attivi = D.sito_interventi.filter(si=>si.attivo);
+  const maxPct = svid => MAXV(D.avanzamenti.filter(a=>a.sottovoce_id===svid).map(a=>+a.pct||0));
+  const maxPiante = siid => MAXV(D.avanz_piante.filter(a=>a.sito_intervento_id===siid).map(a=>+a.piante||0));
+  const intDi = c => attivi.filter(si=>{const i=DB.interventi.find(x=>x.id===si.intervento_id);return i&&i.categoria_id===c.id;});
+  const cats = DB.categorie.filter(c=>intDi(c).length);
+  const avzHtml = cats.map(c=>`<div class="cat-block"><h3 class="cat-h">${esc(c.nome)}</h3>`+
+    intDi(c).map(si=>{
+      const intv=DB.interventi.find(x=>x.id===si.intervento_id);
+      if(intv.tipo==="piante"){
+        const prev=+si.piante_previste||0, cur=maxPiante(si.id);
+        return `<div class="int-block" data-piante="${si.id}">
+          <div class="int-t">${esc(intv.nome)} <span class="muted">— piante messe / ${prev||"?"}</span></div>
+          <input type="number" class="cp-piante" value="${cur||""}" placeholder="totale piante messe a dimora"></div>`;
+      }
+      const svs=D.sottovoci.filter(s=>s.sito_intervento_id===si.id);
+      return `<div class="int-block">
+        <div class="int-t">${esc(intv.nome)}${si.modalita==="conto_terzi"?' <span class="tag">conto terzi</span>':''}</div>
+        ${svs.length? svs.map(sv=>`<div class="sv-av" data-svid="${sv.id}"><label>${esc(sv.nome)}</label>${fasceWidget(maxPct(sv.id))}</div>`).join("")
+                    : '<p class="muted" style="margin:4px 0">Nessuna sotto-voce: definiscile nel Setup.</p>'}
+      </div>`;
+    }).join("")+`</div>`).join("");
+  const intOpts = attivi.map(si=>{const i=DB.interventi.find(x=>x.id===si.intervento_id);return `<option value="${si.id}">${esc(i?i.nome:'?')}</option>`}).join("");
   $("#pane-compila").innerHTML = `
   <div class="card"><h2><span class="n">1</span>Giornata</h2>
     <div class="row2">
-      <div class="field"><label class="req">Data</label><input type="date" id="c-data" value="${oggi()}"></div>
-      <div class="field"><label class="req">Compilatore</label><input id="c-comp" value="${esc(P.nome)}"></div>
-    </div>
+      <div class="field"><label>Data</label><input type="date" id="c-data" value="${oggi()}"></div>
+      <div class="field"><label>Compilatore</label><input id="c-comp" value="${esc(P.nome)}"></div>
+    </div></div>
+  <div class="card"><h2><span class="n">2</span>Avanzamento</h2>
+    <p class="muted">Per ogni sotto-voce indica la fascia raggiunta (cumulativa). Lascia n/d se non c'è avanzamento.</p>
+    ${avzHtml||'<p class="muted">Nessun intervento attivo in questo sito: configuralo nel Setup.</p>'}
   </div>
-  <div class="card"><h2><span class="n">2</span>Avanzamento attività</h2>
-    <p class="muted" style="margin-bottom:12px">Facoltativo: indica solo le attività su cui c'è stato avanzamento. Per le fasce si segna la fascia <b>raggiunta a oggi</b> (cumulativa).</p>
-    ${attHtml}
+  <div class="card"><h2><span class="n">3</span>Ore personale <span class="muted">— obbligatorio (anche 0)</span></h2>
+    <label class="chk"><input type="checkbox" id="c-ou-zero"> Nessuna ora personale oggi</label>
+    <div id="c-ou-list"></div>
+    <button class="add" id="c-ou-add">+ Aggiungi operaio</button>
   </div>
-  <div class="card"><h2><span class="n">3</span>Ore personale <span class="muted" style="text-transform:none">— obbligatorio (anche 0)</span></h2>
-    <div class="chip" style="margin-bottom:10px"><input type="checkbox" id="c-ou-zero"><span>Nessuna ora personale oggi</span></div>
-    <div id="c-ou"></div><button class="add" id="c-ou-add">+ Aggiungi operaio</button>
-  </div>
-  <div class="card"><h2><span class="n">4</span>Macchine <span class="muted" style="text-transform:none">— obbligatorio</span></h2>
-    <div class="chip" style="margin-bottom:10px"><input type="checkbox" id="c-mg-zero"><span>Nessuna macchina presente oggi</span></div>
-    <div id="c-mg"></div><button class="add" id="c-mg-add">+ Aggiungi macchina</button>
+  <div class="card"><h2><span class="n">4</span>Macchine <span class="muted">— obbligatorio</span></h2>
+    <label class="chk"><input type="checkbox" id="c-mg-zero"> Nessuna macchina presente oggi</label>
+    <div id="c-mg-list">${DB.macchine.map(m=>`<div class="mg-row dyn-row" data-ma="${m.id}" style="grid-template-columns:1.4fr auto auto">
+      <b style="align-self:center;font-size:13px">${esc(m.nome)}</b>
+      <label class="chk2"><input type="checkbox" class="mg-pres"> presente</label>
+      <label class="chk2"><input type="checkbox" class="mg-usata"> usata</label></div>`).join("")}</div>
   </div>
   <div class="card"><h2><span class="n">5</span>Ritardi / fermi</h2>
-    <div id="c-ri"></div><button class="add" id="c-ri-add">+ Segnala ritardo</button>
+    <div id="c-ri-list"></div>
+    <button class="add" id="c-ri-add">+ Segnala ritardo</button>
   </div>
   <div class="err" id="c-err"></div>
   <button class="btn btn-p" id="c-invia">Invia compilazione</button>`;
   // fasce
-  $$("[data-fasce]").forEach(g=>g.querySelectorAll(".fascia").forEach(b=>b.onclick=()=>{
-    g.querySelectorAll(".fascia").forEach(x=>x.classList.remove("on"));b.classList.add("on");
-  }));
-  const attOpt = `<option value="">attività…</option>`+DB.attivita.map(a=>`<option value="${a.id}">${esc(a.nome)}</option>`).join("");
-  $("#c-ou-add").onclick=()=>{$("#c-ou").insertAdjacentHTML("beforeend",
-    `<div class="dyn-row" style="grid-template-columns:1.2fr 1fr .7fr auto">
-     <select class="ou-op"><option value="">operaio…</option>${DB.operai.map(o=>`<option value="${o.id}">${esc(o.nome)}</option>`).join("")}</select>
-     <select class="ou-att">${attOpt}</select>
-     <input type="number" class="ou-ore" min="0" step="0.5" placeholder="ore" inputmode="decimal">
-     <button class="x" onclick="this.parentNode.remove()">×</button></div>`)};
-  $("#c-mg-add").onclick=()=>{$("#c-mg").insertAdjacentHTML("beforeend",
-    `<div class="dyn-row" style="grid-template-columns:1.3fr 1fr auto">
-     <select class="mg-ma"><option value="">macchina…</option>${DB.macchine.map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join("")}</select>
-     <select class="mg-att">${attOpt}</select>
-     <button class="x" onclick="this.parentNode.remove()">×</button>
-     <div style="grid-column:1/-1;display:flex;gap:8px">
-       <label class="chip gold" style="flex:1"><input type="checkbox" class="mg-p" checked>Presente (costo)</label>
-       <label class="chip" style="flex:1"><input type="checkbox" class="mg-u">Usata</label></div></div>`)};
-
-  $("#c-ri-add").onclick=()=>{$("#c-ri").insertAdjacentHTML("beforeend",
-    `<div class="dyn-row" style="grid-template-columns:1fr .6fr auto">
-     <select class="ri-att">${attOpt}</select>
-     <input type="number" class="ri-gg" min="1" placeholder="giorni" inputmode="numeric">
-     <button class="x" onclick="this.parentNode.remove()">×</button>
-     <input class="ri-causa" placeholder="causa (es. attesa materiali)" style="grid-column:1/-1"></div>`)};
+  $$("#pane-compila .fasce").forEach(g=>g.querySelectorAll(".fascia").forEach(btn=>btn.onclick=()=>{
+    g.querySelectorAll(".fascia").forEach(b=>b.classList.remove("on"));btn.classList.add("on");}));
+  // ore
+  const ouRow=()=>`<div class="dyn-row" style="grid-template-columns:1.3fr 1fr .7fr auto">
+    <select class="ou-int">${intOpts}</select>
+    <select class="ou-op">${DB.operai.map(o=>`<option value="${o.id}">${esc(o.nome)}</option>`).join("")}</select>
+    <input type="number" class="ou-ore" placeholder="ore"><button class="x" onclick="this.parentNode.remove()">×</button></div>`;
+  $("#c-ou-add").onclick=()=>$("#c-ou-list").insertAdjacentHTML("beforeend",ouRow());
+  // ritardi
+  const causaliOpts=DB.causali.map(c=>`<option value="${c.id}">${esc(c.nome)}${c.forza_maggiore?" (forza maggiore)":""}</option>`).join("");
+  const riRow=()=>`<div class="dyn-row" style="grid-template-columns:1.2fr .5fr 1.3fr auto">
+    <select class="ri-int"><option value="">— intero sito —</option>${intOpts}</select>
+    <input type="number" class="ri-gg" placeholder="giorni">
+    <select class="ri-causa"><option value="">causale…</option>${causaliOpts}</select>
+    <button class="x" onclick="this.parentNode.remove()">×</button></div>`;
+  $("#c-ri-add").onclick=()=>$("#c-ri-list").insertAdjacentHTML("beforeend",riRow());
   $("#c-invia").onclick=inviaCompilazione;
 }
 async function inviaCompilazione(){
   $("#c-err").style.display="none";
-  const sito_id=sitoCorrente(), data=$("#c-data").value, comp=$("#c-comp").value.trim();
-  if(!data||!comp){return err("#c-err","Data e nome del compilatore sono obbligatori.")}
-  // obbligo ore uomo (anche zero) e macchine
-  const ouRows=$$("#c-ou .dyn-row"), mgRows=$$("#c-mg .dyn-row");
+  const sito=CC.sito, data=$("#c-data").value, comp=$("#c-comp").value.trim()||P.nome;
+  if(!data) return err("#c-err","Indica la data.");
   const ouZero=$("#c-ou-zero").checked, mgZero=$("#c-mg-zero").checked;
-  if(!ouZero && ouRows.length===0) return err("#c-err","Ore personale: aggiungi almeno un operaio o spunta «Nessuna ora personale oggi».");
-  if(!mgZero && mgRows.length===0) return err("#c-err","Macchine: aggiungi almeno una macchina o spunta «Nessuna macchina presente oggi».");
-  const ins = {av:[],ou:[],mg:[],ri:[]};
-  for(const a of DB.attivita){
-    if(a.tipo==="status"){const v=$(`[data-av="${a.id}"]`)?.value; if(v) ins.av.push({sito_id,attivita_id:a.id,data,compilatore:comp,stato:v,tipo:"interno"});}
-    else if(a.tipo==="piante"){const v=+($(`[data-piante="${a.id}"]`)?.value||0); if(v>0) ins.av.push({sito_id,attivita_id:a.id,data,compilatore:comp,piante:v,tipo:"interno"});}
-    else {
-      for(const grp of $$(`[data-fasce="${a.id}"]`)){
-        const on=grp.querySelector(".fascia.on"); const v=on?.dataset.v;
-        if(v) ins.av.push({sito_id,attivita_id:a.id,data,compilatore:comp,pct:+v,tipo:grp.dataset.tipo||"interno"});
-      }
-    }
+  const ouRows=$$("#c-ou-list .dyn-row");
+  if(!ouZero && ouRows.length===0) return err("#c-err","Aggiungi le ore personale o spunta «Nessuna ora personale oggi».");
+  const mgPres=$$("#c-mg-list .mg-pres").some(c=>c.checked);
+  if(!mgZero && !mgPres) return err("#c-err","Indica le macchine presenti o spunta «Nessuna macchina presente oggi».");
+  if(!await confermaSito(sito,data)) return;
+  await sb.from("compilazioni").upsert({sito_id:sito,data,compilatore:comp},{onConflict:"sito_id,data"});
+  for(const r of $$("#pane-compila .sv-av")){
+    const on=r.querySelector(".fascia.on"); const pct=+(on?on.dataset.v:0)||0;
+    if(pct>0) await sb.from("avanzamenti").insert({sito_id:sito,sottovoce_id:+r.dataset.svid,data,compilatore:comp,pct});
   }
-  for(const r of ouRows){const op=+r.querySelector(".ou-op").value,att=+r.querySelector(".ou-att").value||null,ore=+r.querySelector(".ou-ore").value;
-    if(!op) return err("#c-err","Ore personale: seleziona l'operaio in ogni riga.");
-    ins.ou.push({sito_id,data,operaio_id:op,attivita_id:att,ore:ore>=0?ore:0});}
-  for(const r of mgRows){const ma=+r.querySelector(".mg-ma").value,att=+r.querySelector(".mg-att").value||null;
-    if(!ma) return err("#c-err","Macchine: seleziona la macchina in ogni riga.");
-    ins.mg.push({sito_id,data,macchina_id:ma,attivita_id:att,presente:r.querySelector(".mg-p").checked,usata:r.querySelector(".mg-u").checked});}
-  for(const r of $$("#c-ri .dyn-row")){const att=+r.querySelector(".ri-att").value||null,gg=+r.querySelector(".ri-gg").value||0;
-    if(gg>0) ins.ri.push({sito_id,data,attivita_id:att,giorni:gg,causa:r.querySelector(".ri-causa").value});}
-  if(!await confermaSito(sito_id,data)) return;
-  // scritture
-  const e1=(await sb.from("compilazioni").upsert({sito_id,data,compilatore:comp},{onConflict:"sito_id,data"})).error;
-  const ops=[];
-  if(ins.av.length)ops.push(sb.from("avanzamenti").insert(ins.av));
-  if(ins.ou.length)ops.push(sb.from("ore_uomo").insert(ins.ou));
-  if(ins.mg.length)ops.push(sb.from("macchine_giorno").insert(ins.mg));
-  if(ins.ri.length)ops.push(sb.from("ritardi").insert(ins.ri));
-  const errs=(await Promise.all(ops)).filter(r=>r.error);
-  if(e1||errs.length) return err("#c-err","Errore di salvataggio: riprova. Se persiste contatta la direzione.");
+  for(const r of $$("#pane-compila [data-piante]")){
+    const v=+r.querySelector(".cp-piante").value||0;
+    if(v>0) await sb.from("avanz_piante").insert({sito_id:sito,sito_intervento_id:+r.dataset.piante,data,compilatore:comp,piante:v});
+  }
+  if(!ouZero) for(const r of ouRows){
+    const si=+r.querySelector(".ou-int").value, op=+r.querySelector(".ou-op").value, ore=+r.querySelector(".ou-ore").value||0;
+    if(ore>0) await sb.from("ore_uomo").insert({sito_id:sito,sito_intervento_id:si,operaio_id:op,data,ore});
+  }
+  if(!mgZero) for(const r of $$("#c-mg-list .mg-row")){
+    if(r.querySelector(".mg-pres").checked)
+      await sb.from("macchine_giorno").insert({sito_id:sito,macchina_id:+r.dataset.ma,data,presente:true,usata:r.querySelector(".mg-usata").checked});
+  }
+  for(const r of $$("#c-ri-list .dyn-row")){
+    const gg=+r.querySelector(".ri-gg").value||0; if(gg<=0)continue;
+    const si=r.querySelector(".ri-int").value;
+    const cid=+r.querySelector(".ri-causa").value||0;
+    const caus=DB.causali.find(c=>c.id===cid);
+    await sb.from("ritardi").insert({sito_id:sito,sito_intervento_id:si?+si:null,data,giorni:gg,
+      causa:caus?caus.nome:null, forza_maggiore:caus?!!caus.forza_maggiore:false});
+  }
   toast("Compilazione inviata ✓"); rCompila();
 }
 
-/* ---------------- GASOLIO ---------------- */
+/* ---------------- GASOLIO (livello sito) ---------------- */
 function rGasolio(){
-  $("#pane-gasolio").innerHTML = `
-  <div class="card"><h2>⛽ Gasolio — dichiarazione giornaliera</h2>
-    <p class="muted" style="margin-bottom:12px">Obbligatoria ogni giorno. Se non ci sono stati rifornimenti, usa il pulsante rapido.</p>
+  const sito=sitoCorrente();
+  $("#pane-gasolio").innerHTML=`
+  <div class="card"><h2>⛽ Gasolio</h2>
+    <p class="muted">Dichiarazione giornaliera obbligatoria per il sito.</p>
+    <div class="field"><label>Data</label><input type="date" id="g-data" value="${oggi()}"></div>
+    <button class="btn btn-g" id="g-zero" style="width:100%">Nessun rifornimento oggi</button>
+    <hr style="margin:16px 0;border:none;border-top:1px solid #E3E7DD">
     <div class="row2">
-      <div class="field"><label class="req">Data</label><input type="date" id="g-data" value="${oggi()}"></div>
-      <div class="field"><label class="req">Operatore</label><input id="g-op" value="${esc(P.nome)}"></div>
+      <div class="field"><label>Litri prelevati</label><input type="number" id="g-litri" placeholder="litri"></div>
+      <div class="field"><label>Operatore</label><input id="g-op" value="${esc(P.nome)}"></div>
     </div>
-    <button class="btn btn-g" id="g-zero" style="margin-bottom:16px">✓ Nessun rifornimento oggi</button>
-    <div style="border-top:1px dashed var(--line);padding-top:14px">
-      <div class="field"><label class="req">Litri prelevati</label><input type="number" id="g-litri" min="0" inputmode="decimal" placeholder="es. 80"></div>
-      <div class="field"><label class="req">Mezzo rifornito</label>
-        <select id="g-mezzo"><option value="">seleziona…</option>${DB.macchine.map(m=>`<option value="${m.id}">${esc(m.nome)}</option>`).join("")}</select></div>
-      <div class="field"><label>Progressivo ore mezzo</label><input type="number" id="g-prog" min="0" inputmode="decimal" placeholder="es. 1240"></div>
-      <div class="err" id="g-err"></div>
-      <button class="btn btn-p" id="g-invia">Registra rifornimento</button>
-    </div>
+    <button class="btn btn-p" id="g-invia" style="width:100%">Registra rifornimento</button>
+    <div class="err" id="g-err"></div>
   </div>`;
   const gsito=()=>sitoCorrente();
   $("#g-zero").onclick=async()=>{
     if(!await confermaSito(gsito(),$("#g-data").value)) return;
     const {error}=await sb.from("gasolio").insert({sito_id:gsito(),data:$("#g-data").value,litri:0,operatore:$("#g-op").value.trim()||P.nome});
-    if(error)return err("#g-err","Errore di salvataggio, riprova.");
-    toast("Registrato: nessun rifornimento ✓")};
+    if(error)return toast("Errore di salvataggio");toast("Registrato: nessun rifornimento ✓");
+  };
   $("#g-invia").onclick=async()=>{
     $("#g-err").style.display="none";
-    const litri=+$("#g-litri").value, mezzo=+$("#g-mezzo").value;
-    if(!(litri>0))return err("#g-err","Indica i litri prelevati (oppure usa «Nessun rifornimento»).");
-    if(!mezzo)return err("#g-err","Seleziona il mezzo rifornito.");
+    const litri=+$("#g-litri").value||0;
+    if(litri<=0)return err("#g-err","Inserisci i litri, oppure usa «Nessun rifornimento oggi».");
     if(!await confermaSito(gsito(),$("#g-data").value)) return;
-    const {error}=await sb.from("gasolio").insert({sito_id:gsito(),data:$("#g-data").value,litri,
-      macchina_id:mezzo,progressivo_ore:+$("#g-prog").value||null,operatore:$("#g-op").value.trim()||P.nome});
-    if(error)return err("#g-err","Errore di salvataggio, riprova.");
-    toast("Rifornimento registrato ✓");rGasolio()};
-}
-
-/* ---------------- VISTA SITO (PM/FM): piano vs reale ---------------- */
-async function rSito(){
-  const sito = DB.siti.find(s=>s.id===P.sito_id);
-  $("#pane-sito").innerHTML = `<p class="muted">Caricamento…</p>`;
-  const M = await loadMovimenti(P.sito_id);
-  const R = calcSito(sito, M);
-  const T=R.tot, oggiD=oggi();
-  const budTot = Object.values(R.attivita).reduce((s,a)=>s+a.budget,0);
-  const rows = DB.attivita.map(a=>{
-    const x=R.attivita[a.id];
-    // scostamento temporale: confronto frazione attesa (lineare tra date) vs reale
-    let timePill="";
-    if(x.fine && x.inizio){
-      const tot=(new Date(x.fine)-new Date(x.inizio))||1;
-      const attesa=Math.min(Math.max((new Date(oggiD)-new Date(x.inizio))/tot,0),1);
-      const diff=x.frac-attesa;
-      timePill = diff>=-0.05?`<span class="pill ok">in linea</span>`
-        : diff>=-0.25?`<span class="pill late">ritardo lieve</span>`
-        :`<span class="pill bad">ritardo</span>`;
-    }
-    const overB = x.budget>0 && x.totale>x.budget;
-    return `<div class="att-row">
-      <div class="t"><span>${esc(x.nome)}</span><span>${x.haTerz&&x.tipo!=="status"?`${Math.round(x.fracInt*100)}%/${Math.round(x.fracTer*100)}% `:esc(x.label)+" "}${timePill}</span></div>
-      <div class="bar"><i style="width:${Math.round(x.frac*100)}%"></i></div>
-      <div class="s"><span>Costo: <b>${eur(x.totale)}</b>${x.haTerz?` <span class="muted">(int. ${eur(x.costoInterno)} + terz. ${eur(x.terzisti)})</span>`:""}${x.budget>0?` / budget int. ${eur(x.budget)}`:""}</span>
-        <span>${x.budget>0?`<span class="pill ${overB?"bad":"ok"}">${overB?"+":""}${eur(x.totale-x.budget)}</span>`:""}</span></div>
-      ${x.budget>0?`<div class="bar"><i class="${overB?"over":""}" style="width:${Math.min(Math.round(x.totale/x.budget*100),100)}%"></i></div>`:""}
-    </div>`;
-  }).join("");
-  $("#pane-sito").innerHTML = `
-  <div class="kpi">
-    <div class="k"><b>${Math.round(T.avz*100)}%</b><span>Avanzamento sito</span></div>
-    <div class="k"><b>${T.ha.toFixed(1)}</b><span>Ettari completati / ${sito.ettari_totali}</span></div>
-    <div class="k"><b>${eur(T.totale)}</b><span>Costo a oggi</span></div>
-    <div class="k"><b style="color:${T.totale>budTot&&budTot>0?'var(--red)':'var(--forest)'}">${budTot>0?eur(budTot-T.totale):"—"}</b><span>Budget residuo</span></div>
-  </div>
-  <div class="card"><h2>📍 ${esc(sito.nome)} — attività vs piano</h2>${rows}</div>
-  <div class="card"><h2>Costi per categoria</h2>
-    <table class="grid"><tr><th>Categoria</th><th>€</th></tr>
-    <tr><td>Ore personale</td><td>${eur(T.oreuomo)}</td></tr>
-    <tr><td>Macchine</td><td>${eur(T.macchine)}</td></tr>
-    <tr><td>Materiali (maturati)</td><td>${eur(T.materiali)}</td></tr>
-    <tr><td>Gasolio</td><td>${eur(T.gasolio)}</td></tr>
-    <tr><td style="border-top:2px solid var(--line)"><b>Costi interni</b></td><td style="border-top:2px solid var(--line)"><b>${eur(T.oreuomo+T.macchine+T.materiali+T.gasolio)}</b></td></tr>
-    <tr><td>Terzisti (a corpo)</td><td>${eur(T.terzisti)}</td></tr>
-    <tr><td><b>Totale</b></td><td><b>${eur(T.totale)}</b></td></tr></table>
-    <p class="muted" style="margin-top:8px">Giorni fermo cumulati: <b>${T.gg_fermo}</b></p>
-  </div>`;
-}
-
-/* ---------------- DASHBOARD (CFO/CEO) ---------------- */
-let chRef=null;
-async function rDash(){
-  $("#pane-dash").innerHTML=`<p class="muted">Caricamento 7 siti…</p>`;
-  const per = [];
-  for(const s of DB.siti){ per.push({sito:s, R:calcSito(s, await loadMovimenti(s.id))}) }
-  const tot = per.reduce((acc,{R})=>{for(const k of ["oreuomo","macchine","materiali","terzisti","gasolio","totale","gg_fermo","ha"])acc[k]=(acc[k]||0)+R.tot[k];return acc},{});
-  const totInterni = tot.oreuomo+tot.macchine+tot.materiali+tot.gasolio;
-  const budPer = per.map(({R})=>Object.values(R.attivita).reduce((s,a)=>s+a.budget,0));
-  const budTot = budPer.reduce((a,b)=>a+b,0);
-  const rows = per.map(({sito,R},i)=>{
-    const b=budPer[i], sc=R.tot.totale-b;
-    return `<tr><td>${esc(sito.nome)}</td><td>${Math.round(R.tot.avz*100)}%</td>
-    <td>${R.tot.ha.toFixed(1)}</td><td>${eur(R.tot.oreuomo)}</td><td>${eur(R.tot.macchine)}</td>
-    <td>${eur(R.tot.materiali)}</td><td>${eur(R.tot.terzisti)}</td><td>${eur(R.tot.gasolio)}</td>
-    <td title="Interni ${eur(R.tot.oreuomo+R.tot.macchine+R.tot.materiali+R.tot.gasolio)} · Terzisti ${eur(R.tot.terzisti)}"><b>${eur(R.tot.totale)}</b></td><td>${eur(b)}</td>
-    <td style="color:${sc>0&&b>0?'var(--red)':'inherit'}">${b>0?eur(sc):"—"}</td><td>${R.tot.gg_fermo}</td></tr>`}).join("");
-  $("#pane-dash").innerHTML = `
-  <div class="kpi">
-    <div class="k"><b>${eur(tot.totale)}</b><span>Costo totale portfolio</span></div>
-    <div class="k"><b style="color:${tot.totale>budTot&&budTot>0?'var(--red)':'var(--forest)'}">${budTot>0?eur(budTot-tot.totale):"—"}</b><span>Budget residuo</span></div>
-    <div class="k"><b>${tot.ha.toFixed(1)}</b><span>Ettari completati</span></div>
-    <div class="k"><b>${tot.gg_fermo}</b><span>Giorni fermo</span></div>
-    <div class="k"><b>${eur(totInterni)}</b><span>di cui costi interni</span></div>
-    <div class="k"><b>${eur(tot.terzisti)}</b><span>di cui terzisti</span></div>
-  </div>
-  <div class="card"><h2>📊 Consolidamento 7 siti</h2><div class="scroll-x">
-    <table class="grid"><tr><th>Sito</th><th>Avz</th><th>Ha</th><th>Personale</th><th>Macch</th><th>Mater</th><th>Terz</th><th>Gas</th><th>Totale</th><th>Budget</th><th>Scost</th><th>Fermo</th></tr>${rows}</table>
-  </div><p class="muted" style="margin-top:8px">Budget = interno (setup piano) + preventivi terzisti del sito. Passa sul Totale per vedere interni/terzisti.</p></div>
-  <div class="card"><h2>Costi per sito (in pila)</h2><canvas id="ch-pila" height="220"></canvas></div>
-  <div class="card"><h2>Gantt — piano per sito</h2>
-    <div class="field"><label>Sito</label><select id="gantt-sito">${DB.siti.map(s=>`<option value="${s.id}">${esc(s.nome)}</option>`).join("")}</select></div>
-    <div id="gantt-box"></div></div>
-  <div class="card"><h2>Heatmap avanzamento (sito × attività)</h2><div class="scroll-x" id="heat-box"></div></div>
-  <div class="card"><h2>Efficienza dei siti a confronto</h2>
-    <p class="muted" style="margin-bottom:12px">Indicatori normalizzati: confrontabili tra siti di dimensioni diverse. Verde = buono, rosso = critico.</p>
-    <div class="scroll-x"><div id="eff-box"></div></div>
-    <div class="efflegend">
-      <span><span class="sw" style="background:#1F5C2E"></span>ottimo</span>
-      <span><span class="sw" style="background:#8CBF66"></span>buono</span>
-      <span><span class="sw" style="background:#E8A33D"></span>attenzione</span>
-      <span><span class="sw" style="background:#C0392B"></span>critico</span>
-      <span><span class="sw" style="background:#E6E8E1"></span>n/d</span>
-    </div>
-    <p class="muted" style="margin-top:8px;font-size:11.5px">Efficienza costi e tempi: <b>indice attorno a 1</b> — sopra 1 è meglio (sotto budget / in anticipo), sotto 1 peggio. €/ha e Giorni fermo: colore relativo al portfolio (più basso = meglio).</p>
-  </div>
-  ${isReadOnly()?"":`<div class="card"><h2>Esporta dati (CSV)</h2>
-    <div class="row2">
-      ${["avanzamenti","ore_uomo","macchine_giorno","terzisti_giorno","gasolio","ritardi","piano","costi_materiali","compilazioni"]
-        .map(t=>`<button class="btn btn-o btn-sm" data-csv="${t}" style="margin-bottom:8px">${t.replace("_"," ")}</button>`).join("")}
-      <button class="btn btn-g btn-sm" id="csv-consol" style="margin-bottom:8px">consolidamento</button>
-    </div>
-  </div>`}`;
-  // grafico pila
-  if(chRef)chRef.destroy();
-  chRef=new Chart($("#ch-pila"),{type:"bar",
-    data:{labels:per.map(p=>p.sito.nome),
-      datasets:[["Ore personale","oreuomo","#1F5C2E"],["Macchine","macchine","#6FA84A"],["Materiali","materiali","#C6DFA3"],["Terzisti","terzisti","#E8A33D"],["Gasolio","gasolio","#8D6E63"]]
-        .map(([l,k,c])=>({label:l,data:per.map(p=>p.R.tot[k]),backgroundColor:c}))},
-    options:{responsive:true,scales:{x:{stacked:true},y:{stacked:true}},plugins:{legend:{position:"bottom"}}}});
-  // GANTT (CSS, leggibile su mobile): barre piano + barra avanzamento
-  const drawGantt=(sid)=>{
-    const p=per.find(x=>x.sito.id===sid); if(!p)return;
-    const acts=DB.attivita.map(a=>p.R.attivita[a.id]).filter(x=>x.inizio&&x.fine);
-    if(!acts.length){$("#gantt-box").innerHTML=`<p class="muted">Nessuna data nel piano di questo sito.</p>`;return}
-    const t0=Math.min(...acts.map(x=>+new Date(x.inizio)));
-    const t1=Math.max(...acts.map(x=>+new Date(x.fine)));
-    const span=(t1-t0)||1, oggiT=+new Date(oggi());
-    const oggiPct=Math.min(Math.max((oggiT-t0)/span*100,0),100);
-    $("#gantt-box").innerHTML = acts.map(x=>{
-      const l=( +new Date(x.inizio)-t0)/span*100, w=Math.max((+new Date(x.fine)-+new Date(x.inizio))/span*100,2);
-      return `<div style="margin-bottom:10px">
-        <div style="font-size:12px;font-weight:700;display:flex;justify-content:space-between">
-          <span>${esc(x.nome)}</span><span class="muted">${x.inizio} → ${x.fine}</span></div>
-        <div style="position:relative;height:18px;background:var(--line);border-radius:4px">
-          <div style="position:absolute;left:${l}%;width:${w}%;height:100%;background:var(--lime);border-radius:4px"></div>
-          <div style="position:absolute;left:${l}%;width:${w*x.frac}%;height:100%;background:var(--forest);border-radius:4px"></div>
-        </div></div>`}).join("")
-      + `<div style="position:relative;height:0"><div style="position:absolute;left:${oggiPct}%;top:-${acts.length*28+10}px;height:${acts.length*28+10}px;border-left:2px dashed var(--gold)"></div></div>
-      <p class="muted" style="margin-top:6px">▮ chiaro = piano · ▮ scuro = avanzamento · linea oro = oggi</p>`;
+    const {error}=await sb.from("gasolio").insert({sito_id:gsito(),data:$("#g-data").value,litri,operatore:$("#g-op").value.trim()||P.nome});
+    if(error)return toast("Errore di salvataggio");toast("Rifornimento registrato ✓");$("#g-litri").value="";
   };
-  $("#gantt-sito").onchange=e=>drawGantt(+e.target.value);
-  drawGantt(+$("#gantt-sito").value);
-  // HEATMAP sito × attività (avanzamento %)
-  const heatCell=f=>{const v=Math.round(f*100);
-    const bg=v===0?"#F0F2EC":v<26?"#DCE9CF":v<51?"#B7D69A":v<76?"#8CBF66":"#1F5C2E";
-    const fg=v>=76?"#fff":"var(--ink)";
-    return `<td style="background:${bg};color:${fg};text-align:center;font-weight:700">${v}</td>`};
-  $("#heat-box").innerHTML=`<table class="grid"><tr><th>Sito</th>${DB.attivita.map(a=>`<th title="${esc(a.nome)}">${esc(a.nome.slice(0,8))}</th>`).join("")}</tr>
-    ${per.map(({sito,R})=>`<tr><td>${esc(sito.nome)}</td>${DB.attivita.map(a=>heatCell(R.attivita[a.id].frac)).join("")}</tr>`).join("")}</table>`;
-
-  // ---- HEATMAP EFFICIENZA (indicatori normalizzati) ----
-  const today=new Date(oggi());
-  const eff = per.map(({sito,R},i)=>{
-    const budget=budPer[i], costo=R.tot.totale, avz=R.tot.avz;
-    const cpi = (budget>0 && costo>0) ? (avz*budget)/costo : null;          // efficienza costi
-    // avanzamento atteso a oggi (pesato sulle attività con date)
-    let exp=0, pesoConData=0;
-    for(const a of DB.attivita){
-      const x=R.attivita[a.id];
-      if(x.inizio && x.fine && x.peso>0){
-        const tot=(new Date(x.fine)-new Date(x.inizio))||1;
-        const fr=Math.min(Math.max((today-new Date(x.inizio))/tot,0),1);
-        exp += (x.peso/100)*fr; pesoConData += x.peso/100;
-      }
-    }
-    const spi = exp>0 ? avz/exp : null;                                     // efficienza tempi
-    const eurHa = R.tot.ha>0 ? costo/R.tot.ha : null;                       // costo per ettaro
-    return {nome:sito.nome, avz, cpi, spi, eurHa, fermo:R.tot.gg_fermo};
-  });
-  // scale relative per €/ha e giorni fermo
-  const haVals=eff.map(e=>e.eurHa).filter(v=>v!=null);
-  const haMin=Math.min(...haVals), haMax=Math.max(...haVals);
-  const fMax=Math.max(1,...eff.map(e=>e.fermo));
-  const C={ott:"#1F5C2E",buono:"#8CBF66",att:"#E8A33D",crit:"#C0392B"};
-  const colScala=(v,lo,hi,inv)=>{ // v tra lo..hi; inv=true → basso è buono
-    if(v==null||!isFinite(v))return null;
-    let t=(v-lo)/((hi-lo)||1); t=Math.min(Math.max(t,0),1); if(inv)t=1-t;
-    return t>=0.75?C.ott:t>=0.5?C.buono:t>=0.25?C.att:C.crit;
-  };
-  const colIndice=(v)=>{ // indici attorno a 1
-    if(v==null||!isFinite(v))return null;
-    return v>=1.05?C.ott:v>=0.95?C.buono:v>=0.85?C.att:C.crit;
-  };
-  const tile=(val,bg,sub)=> bg==null
-    ? `<div class="tile nd"><b>n/d</b><span>${sub||""}</span></div>`
-    : `<div class="tile" style="background:${bg}"><b>${val}</b><span>${sub||""}</span></div>`;
-  const cols=["Sito","Avanz.","Effic.\ncosti","Effic.\ntempi","€/ha","Giorni\nfermo"];
-  const head=`<div class="effgrid" style="grid-template-columns:1.3fr repeat(5,1fr)">`
-    + cols.map((c,i)=>`<div class="${i==0?'eh':'eh'}" style="${i==0?'text-align:left':''}">${esc(c).replace(/\n/g,'<br>')}</div>`).join("");
-  const body = eff.map(e=>{
-    const ic = (e.eurHa!=null)? Math.round(e.eurHa).toLocaleString("it-IT") : null;
-    return `<div class="es">${esc(e.nome)}</div>`
-      + tile(Math.round(e.avz*100)+"%", colScala(e.avz*100,0,100,false))
-      + tile(e.cpi!=null?e.cpi.toFixed(2):null, colIndice(e.cpi))
-      + tile(e.spi!=null?e.spi.toFixed(2):null, colIndice(e.spi))
-      + tile(ic, colScala(e.eurHa,haMin,haMax,true), "€")
-      + tile(e.fermo, colScala(e.fermo,0,fMax,true), "gg");
-  }).join("");
-  $("#eff-box").innerHTML = head + body + `</div>`;
-  // export (assente per sola lettura)
-  $$("[data-csv]").forEach(b=>b.onclick=()=>exportCsv(b.dataset.csv));
-  if($("#csv-consol"))$("#csv-consol").onclick=()=>{
-    const head="Sito;Avanzamento %;Ha completati;Ore personale;Macchine;Materiali;Terzisti;Gasolio;Totale;Budget;Scostamento;Giorni fermo";
-    const lines=per.map(({sito,R},i)=>[sito.nome,Math.round(R.tot.avz*100),R.tot.ha.toFixed(1),R.tot.oreuomo,R.tot.macchine,Math.round(R.tot.materiali),R.tot.terzisti,R.tot.gasolio,Math.round(R.tot.totale),budPer[i],Math.round(R.tot.totale-budPer[i]),R.tot.gg_fermo].join(";"));
-    dlCsv("consolidamento.csv",[head,...lines].join("\n"))};
-}
-async function exportCsv(table){
-  const {data,error}=await sb.from(table).select("*");
-  if(error||!data?.length)return toast("Nessun dato in "+table);
-  const cols=Object.keys(data[0]);
-  const csv=[cols.join(";"),...data.map(r=>cols.map(c=>String(r[c]??"").replace(/;/g,",")).join(";"))].join("\n");
-  dlCsv(table+".csv",csv);
-}
-function dlCsv(name,content){
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob(["\uFEFF"+content],{type:"text/csv;charset=utf-8"}));
-  a.download=name;a.click();
 }
 
-/* ---------------- SETUP (CFO/CEO) ---------------- */
+
+/* ====================== SETUP (Blocco 3) ====================== */
 async function rSetup(){
   $("#pane-setup").innerHTML = `
   <div class="card"><h2>⚙️ Setup</h2>
     <div class="row2">
       <button class="btn btn-o btn-sm" data-s="siti">Siti e parametri</button>
       <button class="btn btn-o btn-sm" data-s="operai">Operai</button>
-      <button class="btn btn-o btn-sm" data-s="macchine">Macchine (aziendali)</button>
-      <button class="btn btn-o btn-sm" data-s="terzisti">Terzisti</button>
-      <button class="btn btn-o btn-sm" data-s="prevterz">Preventivi terzisti</button>
-      <button class="btn btn-o btn-sm" data-s="piano">Piano di progetto</button>
-      <button class="btn btn-o btn-sm" data-s="materiali">Costi materiali</button>
+      <button class="btn btn-o btn-sm" data-s="macchine">Macchine</button>
+      <button class="btn btn-o btn-sm" data-s="interventi">Interventi e sotto-voci</button>
+      <button class="btn btn-o btn-sm" data-s="pesi">Pesi categorie</button>
     </div></div>
   <div id="setup-body"></div>`;
   $$("[data-s]").forEach(b=>b.onclick=()=>SETUP[b.dataset.s]());
-  SETUP.piano();
+  SETUP.interventi();
 }
+
+function svRow(id,nome){
+  return `<div class="sv-row dyn-row" style="grid-template-columns:1fr auto" data-svid="${id||""}">
+    <input class="sv-nome" value="${esc(nome||"")}" placeholder="es. Accesso nord">
+    <button class="x sv-del">×</button></div>`;
+}
+
 const SETUP = {
+ /* ---- Siti e parametri ---- */
  async siti(){
   const {data}= await sb.from("siti").select("*").order("id");
   $("#setup-body").innerHTML=`<div class="card"><h2>Parametri aziendali</h2>
    <div class="field"><label>Prezzo gasolio €/litro (unico per tutta l'azienda)</label>
-   <input type="number" step="0.01" id="par-pg" value="${DB.par?.prezzo_gasolio??1.35}"></div>
+   <input type="number" step="0.01" id="par-pg" value="${DB.par?.prezzo_gasolio??0}"></div>
    <button class="btn btn-p" id="par-save">Salva parametri</button></div>
-   <div class="card"><h2>Siti — ettari totali</h2>
-   ${data.map(s=>`<div class="dyn-row" style="grid-template-columns:1.3fr .8fr" data-id="${s.id}">
+   <div class="card"><h2>Siti — ettari e avvio lavori</h2>
+   <p class="muted">La data di avvio lavori è la base per calcolare il tempo residuo alle scadenze degli interventi.</p>
+   ${data.map(s=>`<div class="dyn-row" style="grid-template-columns:1.2fr .7fr 1fr" data-id="${s.id}">
      <b style="align-self:center">${esc(s.nome)}</b>
      <div><label>Ettari</label><input type="number" class="s-ha" value="${s.ettari_totali}"></div>
+     <div><label>Avvio lavori</label><input type="date" class="s-avvio" value="${s.data_avvio||""}"></div>
    </div>`).join("")}
    <button class="btn btn-p" id="s-save">Salva siti</button></div>`;
   $("#par-save").onclick=async()=>{
@@ -767,122 +844,119 @@ const SETUP = {
     DB.par.prezzo_gasolio=v;toast("Parametri salvati ✓")};
   $("#s-save").onclick=async()=>{
     for(const r of $$("#setup-body [data-id]"))
-      await sb.from("siti").update({ettari_totali:+r.querySelector(".s-ha").value}).eq("id",+r.dataset.id);
-    toast("Siti salvati ✓");Object.assign(DB.siti,(await sb.from("siti").select("*").order("id")).data)};
+      await sb.from("siti").update({ettari_totali:+r.querySelector(".s-ha").value,data_avvio:r.querySelector(".s-avvio").value||null}).eq("id",+r.dataset.id);
+    toast("Siti salvati ✓");DB.siti=(await sb.from("siti").select("*").order("id")).data||DB.siti;
+  };
  },
  async operai(){ anag("operai","Operai",[["nome","Nome",null],["tariffa_ora","€/ora","number"]]) },
  async macchine(){ anag("macchine","Macchine — elenco unico aziendale",[["nome","Nome",null],["tariffa_giorno","€/giorno","number"]]) },
- async terzisti(){ anag("terzisti","Terzisti (per sito)",[["nome","Nome",null],["tariffa_ora","€/ora","number"]],true) },
- async piano(){
-  const sid=+($("#p-sito")?.value||DB.siti[0].id);
-  const {data:pi}=await sb.from("piano").select("*").eq("sito_id",sid);
-  const rows=DB.attivita.map(a=>{
-    const p=pi.find(x=>x.attivita_id===a.id)||{};
-    return `<div class="card" data-att="${a.id}" data-pid="${p.id||""}" style="padding:12px">
-      <b>${esc(a.nome)}</b>
-      <div class="row2" style="margin-top:8px">
-        <div><label>Inizio prev.</label><input type="date" class="p-di" value="${p.data_inizio_prevista||""}"></div>
-        <div><label>Fine prev.</label><input type="date" class="p-df" value="${p.data_fine_prevista||""}"></div>
-        <div><label>Budget €</label><input type="number" class="p-b" value="${p.budget||0}"></div>
-        <div><label>Extra budget €</label><input type="number" class="p-eb" value="${p.extra_budget||0}"></div>
-        <div><label>Peso %</label><input type="number" class="p-w" value="${p.peso_pct||0}"></div>
-        ${a.tipo==="piante"?`<div><label>Piante previste</label><input type="number" class="p-pp" value="${p.piante_previste||""}"></div>`:""}
-      </div></div>`}).join("");
-  $("#setup-body").innerHTML=`<div class="card"><h2>Piano di progetto</h2>
-    <div class="field"><label>Sito</label><select id="p-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===sid?"selected":""}>${esc(s.nome)}</option>`).join("")}</select></div>
-    <p class="muted" id="p-peso-sum" style="margin-bottom:10px"></p></div>
-    ${rows}<button class="btn btn-p" id="p-save">Salva piano sito</button>`;
-  const updSum=()=>{const tot=$$(".p-w").reduce((s,i)=>s+(+i.value||0),0);
-    $("#p-peso-sum").innerHTML=`Somma pesi: <b style="color:${tot===100?'var(--forest)':'var(--red)'}">${tot}%</b> (deve essere 100)`;};
-  $$(".p-w").forEach(i=>i.oninput=updSum);updSum();
-  $("#p-sito").onchange=()=>SETUP.piano();
-  $("#p-save").onclick=async()=>{
-    for(const c of $$("[data-att]")){
-      const rec={sito_id:sid,attivita_id:+c.dataset.att,
-        data_inizio_prevista:c.querySelector(".p-di").value||null,
-        data_fine_prevista:c.querySelector(".p-df").value||null,
-        budget:+c.querySelector(".p-b").value||0,
-        extra_budget:+c.querySelector(".p-eb").value||0,
-        peso_pct:+c.querySelector(".p-w").value||0,
-        piante_previste:c.querySelector(".p-pp")?+c.querySelector(".p-pp").value||null:null};
-      const pid=c.dataset.pid;
-      if(pid) await sb.from("piano").update(rec).eq("id",+pid);
-      else await sb.from("piano").insert(rec);
-    }
-    toast("Piano salvato ✓");SETUP.piano()};
- },
- async prevterz(){
-  const sid=+($("#pt-sito")?.value||DB.siti[0].id);
-  const {data:tp}=await sb.from("terzisti_preventivi").select("*").eq("sito_id",sid);
-  const terzSito=DB.terzisti.filter(t=>t.sito_id===sid);
-  const rows=DB.attivita.filter(a=>a.tipo!=="status").map(a=>{
-    const p=tp.find(x=>x.attivita_id===a.id)||{};
-    return `<div class="dyn-row" style="grid-template-columns:1.2fr 1.1fr .8fr" data-att="${a.id}" data-pid="${p.id||""}">
-      <b style="align-self:center;font-size:13px">${esc(a.nome)}</b>
-      <select class="pt-te"><option value="">— nessun terzista —</option>
-        ${terzSito.map(t=>`<option value="${t.id}" ${t.id===p.terzista_id?"selected":""}>${esc(t.nome)}</option>`).join("")}</select>
-      <input type="number" class="pt-imp" placeholder="preventivo €" value="${p.importo||""}">
-    </div>`}).join("");
-  $("#setup-body").innerHTML=`<div class="card"><h2>Preventivi terzisti (a corpo)</h2>
-    <div class="field"><label>Sito</label><select id="pt-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===sid?"selected":""}>${esc(s.nome)}</option>`).join("")}</select></div>
-    <p class="muted">Un terzista per attività. Il costo matura con la % di avanzamento "terzista" segnata in compilazione. Lascia "nessun terzista" se l'attività è solo interna.</p>
-    ${terzSito.length?"":'<div class="banner">Nessun terzista per questo sito: aggiungilo prima nella scheda Terzisti.</div>'}
-    ${rows}<button class="btn btn-p" id="pt-save">Salva preventivi</button></div>`;
-  $("#pt-sito").onchange=()=>SETUP.prevterz();
-  $("#pt-save").onclick=async()=>{
-    for(const r of $$("#setup-body [data-att]")){
-      const te=+r.querySelector(".pt-te").value, imp=+r.querySelector(".pt-imp").value||0, pid=r.dataset.pid, att=+r.dataset.att;
-      if(!te){ if(pid) await sb.from("terzisti_preventivi").delete().eq("id",+pid); continue; }
-      const rec={sito_id:sid,attivita_id:att,terzista_id:te,importo:imp};
-      if(pid) await sb.from("terzisti_preventivi").update(rec).eq("id",+pid);
-      else await sb.from("terzisti_preventivi").insert(rec);
-    }
-    toast("Preventivi salvati ✓");SETUP.prevterz()};
- },
- async materiali(){
-  const sid=+($("#m-sito")?.value||DB.siti[0].id);
-  const {data:cm}=await sb.from("costi_materiali").select("*").eq("sito_id",sid).order("attivita_id");
-  const rows=DB.attivita.filter(a=>a.tipo!=="status").map(a=>{
-    const voci=cm.filter(c=>c.attivita_id===a.id);
-    return `<div class="card" style="padding:12px"><b>${esc(a.nome)}</b>
-     <div class="m-list" data-att="${a.id}">
-      ${voci.map(v=>`<div class="dyn-row" style="grid-template-columns:1.4fr .8fr auto" data-vid="${v.id}">
-        <input class="m-voce" value="${esc(v.voce)}"><input type="number" class="m-imp" value="${v.importo_totale}">
-        <button class="x m-del">×</button></div>`).join("")}
-     </div>
-     <button class="add m-add" data-att="${a.id}">+ Aggiungi voce</button>
-     <p class="muted">Totale attività: <b>${eur(voci.reduce((s,v)=>s+ +v.importo_totale,0))}</b></p></div>`}).join("");
-  $("#setup-body").innerHTML=`<div class="card"><h2>Costi materiali — importi totali per voce</h2>
-    <div class="field"><label>Sito</label><select id="m-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===sid?"selected":""}>${esc(s.nome)}</option>`).join("")}</select></div>
-    <p class="muted">Il costo matura con l'avanzamento: importo × fascia % (o piante/previste per la Piantumazione).</p></div>
-    ${rows}<button class="btn btn-p" id="m-save">Salva materiali sito</button>`;
-  $("#m-sito").onchange=()=>SETUP.materiali();
-  $$(".m-add").forEach(b=>b.onclick=()=>{
-    $(`.m-list[data-att="${b.dataset.att}"]`).insertAdjacentHTML("beforeend",
-    `<div class="dyn-row" style="grid-template-columns:1.4fr .8fr auto" data-vid="">
-      <input class="m-voce" placeholder="voce (es. Geotessuto)"><input type="number" class="m-imp" placeholder="importo €">
-      <button class="x m-del">×</button></div>`);bindDel()});
-  function bindDel(){$$(".m-del").forEach(x=>x.onclick=async()=>{
-    const row=x.parentNode, vid=row.dataset.vid;
-    if(vid) await sb.from("costi_materiali").delete().eq("id",+vid);
-    row.remove()})}
+
+ /* ---- Interventi e sotto-voci (cuore della gerarchia) ---- */
+ async interventi(){
+  const sid=+($("#i-sito")?.value||DB.siti[0].id);
+  const cat=+($("#i-cat")?.value||DB.categorie[0].id);
+  const {data:siAll}=await sb.from("sito_interventi").select("*").eq("sito_id",sid);
+  const siIds=(siAll||[]).map(x=>x.id);
+  let svAll=[];
+  if(siIds.length){const r=await sb.from("sottovoci").select("*").in("sito_intervento_id",siIds).order("ordine");svAll=r.data||[];}
+  const intsCat=DB.interventi.filter(i=>i.categoria_id===cat);
+  const rows=intsCat.map(intv=>{
+    const si=(siAll||[]).find(x=>x.intervento_id===intv.id)||{};
+    const attivo=!!si.attivo, mod=si.modalita||intv.modalita||"in_house";
+    const svs=svAll.filter(s=>s.sito_intervento_id===si.id);
+    const isP=intv.tipo==="piante";
+    return `<div class="card int-card" data-int="${intv.id}" data-si="${si.id||""}" style="padding:12px">
+      <label class="int-head"><input type="checkbox" class="i-attivo" ${attivo?"checked":""}> <b>${esc(intv.nome)}</b>
+        ${isP?'<span class="tag">piante</span>':''}</label>
+      <div class="i-body ${attivo?"":"hide"}">
+        <div class="row2" style="margin-top:8px">
+          <div><label>Modalità</label><select class="i-mod">
+            <option value="in_house" ${mod==="in_house"?"selected":""}>In house</option>
+            <option value="conto_terzi" ${mod==="conto_terzi"?"selected":""}>Conto terzi</option></select></div>
+          ${isP
+            ? `<div><label>Piante previste</label><input type="number" class="i-pp" value="${si.piante_previste||""}"></div>
+               <div><label>Costo €/pianta</label><input type="number" step="0.01" class="i-cu" value="${si.costo_unitario||""}"></div>`
+            : `<div><label>Budget € (materiali o preventivo terzista)</label><input type="number" class="i-bud" value="${si.budget||0}"></div>`}
+          <div><label>Scadenza (deadline)</label><input type="date" class="i-scad" value="${si.scadenza||""}"></div>
+        </div>
+        ${isP?"":`<div style="margin-top:10px">
+          <label class="muted">Sotto-voci (col C) — la quantità = numero di sotto-voci; il budget si ripartisce tra esse</label>
+          <div class="sv-list">${svs.map(s=>svRow(s.id,s.nome)).join("")}</div>
+          <button class="add sv-add">+ Aggiungi sotto-voce</button></div>`}
+      </div></div>`;
+  }).join("");
+  $("#setup-body").innerHTML=`<div class="card"><h2>Interventi e sotto-voci</h2>
+    <div class="row2">
+      <div><label>Sito</label><select id="i-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===sid?"selected":""}>${esc(s.nome)}</option>`).join("")}</select></div>
+      <div><label>Categoria</label><select id="i-cat">${DB.categorie.map(c=>`<option value="${c.id}" ${c.id===cat?"selected":""}>${esc(c.nome)}</option>`).join("")}</select></div>
+    </div>
+    <p class="muted">Attiva gli interventi presenti in questo sito (gli altri non contano nell'avanzamento). Imposta budget e modalità, ed espandi le sotto-voci della colonna C.</p></div>
+    ${rows||'<div class="card"><p class="muted">Nessun intervento in questa categoria.</p></div>'}
+    <button class="btn btn-p" id="i-save">Salva categoria</button>`;
+  $("#i-sito").onchange=()=>SETUP.interventi();
+  $("#i-cat").onchange=()=>SETUP.interventi();
+  $$(".i-attivo").forEach(ch=>ch.onchange=()=>ch.closest(".int-card").querySelector(".i-body").classList.toggle("hide",!ch.checked));
+  function bindDel(){$$(".sv-del").forEach(x=>x.onclick=()=>x.closest(".sv-row").remove());}
+  $$(".sv-add").forEach(b=>b.onclick=()=>{b.previousElementSibling.insertAdjacentHTML("beforeend",svRow("",""));bindDel();});
   bindDel();
-  $("#m-save").onclick=async()=>{
-    for(const l of $$(".m-list")){
-      const att=+l.dataset.att;
-      for(const r of l.querySelectorAll(".dyn-row")){
-        const voce=r.querySelector(".m-voce").value.trim(), imp=+r.querySelector(".m-imp").value||0, vid=r.dataset.vid;
-        if(!voce) continue;
-        if(vid) await sb.from("costi_materiali").update({voce,importo_totale:imp}).eq("id",+vid);
-        else await sb.from("costi_materiali").insert({sito_id:sid,attivita_id:att,voce,importo_totale:imp});
-      }}
-    toast("Materiali salvati ✓");SETUP.materiali()};
+  $("#i-save").onclick=async()=>{
+    for(const card of $$(".int-card")){
+      const intId=+card.dataset.int, intv=DB.interventi.find(i=>i.id===intId);
+      const attivo=card.querySelector(".i-attivo").checked;
+      const rec={sito_id:sid,intervento_id:intId,attivo,modalita:card.querySelector(".i-mod").value,scadenza:card.querySelector(".i-scad").value||null};
+      if(intv.tipo==="piante"){rec.piante_previste=+card.querySelector(".i-pp").value||0;rec.costo_unitario=+card.querySelector(".i-cu").value||0;rec.budget=0;}
+      else rec.budget=+card.querySelector(".i-bud").value||0;
+      const {data:up}=await sb.from("sito_interventi").upsert(rec,{onConflict:"sito_id,intervento_id"}).select().single();
+      const siId=(up&&up.id)||+card.dataset.si||null;
+      if(intv.tipo!=="piante" && siId){
+        const present=[];
+        for(const r of card.querySelectorAll(".sv-row")){
+          const nome=r.querySelector(".sv-nome").value.trim(); if(!nome)continue;
+          const svid=r.dataset.svid;
+          if(svid){await sb.from("sottovoci").update({nome}).eq("id",+svid);present.push(+svid);}
+          else{const {data:ins}=await sb.from("sottovoci").insert({sito_intervento_id:siId,nome}).select().single();if(ins)present.push(ins.id);}
+        }
+        const existing=(await sb.from("sottovoci").select("id").eq("sito_intervento_id",siId)).data||[];
+        for(const e of existing) if(!present.includes(e.id)) await sb.from("sottovoci").delete().eq("id",e.id);
+      }
+    }
+    toast("Categoria salvata ✓");SETUP.interventi();
+  };
+ },
+
+ /* ---- Pesi categorie (per sito) ---- */
+ async pesi(){
+  const sid=+($("#w-sito")?.value||DB.siti[0].id);
+  const {data:sc}=await sb.from("sito_categorie").select("*").eq("sito_id",sid);
+  const {data:siAtt}=await sb.from("sito_interventi").select("intervento_id").eq("sito_id",sid).eq("attivo",true);
+  const catPresenti=new Set((siAtt||[]).map(x=>{const i=DB.interventi.find(j=>j.id===x.intervento_id);return i&&i.categoria_id;}));
+  const rows=DB.categorie.map(c=>{
+    const w=(sc||[]).find(x=>x.categoria_id===c.id)||{};
+    const pres=catPresenti.has(c.id);
+    return `<div class="dyn-row" style="grid-template-columns:1.5fr .6fr" data-cat="${c.id}">
+      <b style="align-self:center;${pres?"":"opacity:.45"}">${esc(c.nome)}${pres?"":' <span class="muted">(nessun intervento attivo)</span>'}</b>
+      <div><label>Peso %</label><input type="number" class="w-val" value="${w.peso_pct||0}"></div></div>`;
+  }).join("");
+  $("#setup-body").innerHTML=`<div class="card"><h2>Pesi delle categorie</h2>
+    <div class="field"><label>Sito</label><select id="w-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===sid?"selected":""}>${esc(s.nome)}</option>`).join("")}</select></div>
+    <p class="muted" id="w-sum"></p>
+    <p class="muted">I pesi dicono quanto ogni categoria incide sull'avanzamento del sito (e quindi sugli ettari). Il sistema <b>ricalibra automaticamente</b> sulle categorie presenti, quindi non devono per forza sommare 100 — ma è la situazione ideale.</p></div>
+    ${rows}<button class="btn btn-p" id="w-save">Salva pesi</button>`;
+  const upd=()=>{const t=$$(".w-val").reduce((s,i)=>s+(+i.value||0),0);
+    $("#w-sum").innerHTML=`Somma pesi: <b style="color:${t===100?'var(--forest)':'var(--gold)'}">${t}%</b>`;};
+  $$(".w-val").forEach(i=>i.oninput=upd);upd();
+  $("#w-sito").onchange=()=>SETUP.pesi();
+  $("#w-save").onclick=async()=>{
+    for(const r of $$("#setup-body [data-cat]"))
+      await sb.from("sito_categorie").upsert({sito_id:sid,categoria_id:+r.dataset.cat,peso_pct:+r.querySelector(".w-val").value||0},{onConflict:"sito_id,categoria_id"});
+    toast("Pesi salvati ✓");};
  },
 };
+
 async function anag(table,titolo,campi,perSito=false){
   const {data}=await sb.from(table).select("*").order("id");
   $("#setup-body").innerHTML=`<div class="card"><h2>${titolo}</h2>
-   <div id="an-list">${data.map(r=>`<div class="dyn-row" style="grid-template-columns:${perSito?"1fr ":""}1.2fr .8fr auto" data-id="${r.id}">
+   <div id="an-list">${(data||[]).map(r=>`<div class="dyn-row" style="grid-template-columns:${perSito?"1fr ":""}1.2fr .8fr auto" data-id="${r.id}">
      ${perSito?`<select class="an-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===r.sito_id?"selected":""}>${esc(s.nome)}</option>`).join("")}</select>`:""}
      ${campi.map(([k,l,t])=>`<input class="an-${k}" type="${t||"text"}" value="${esc(r[k])}" placeholder="${l}">`).join("")}
      <button class="x an-off" title="disattiva">×</button></div>`).join("")}</div>
