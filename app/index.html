@@ -352,6 +352,9 @@ function calcSito(sito_id, D){
         let sum=0;
         for(const sv of svs) sum += MAXV(D.avanzamenti.filter(a=>a.sottovoce_id===sv.id).map(a=>+a.pct||0))/100;
         avz=sum/svs.length;
+      } else {
+        // nessuna sotto-voce: l'avanzamento si segna sull'intervento stesso
+        avz = MAXV(D.avanzamenti.filter(a=>a.sito_intervento_id===si.id).map(a=>+a.pct||0))/100;
       }
       budgetEff=+si.budget||0;
     }
@@ -662,6 +665,7 @@ async function rCompila(){
   const attivi = D.sito_interventi.filter(si=>si.attivo);
   const maxPct = svid => MAXV(D.avanzamenti.filter(a=>a.sottovoce_id===svid).map(a=>+a.pct||0));
   const maxPiante = siid => MAXV(D.avanz_piante.filter(a=>a.sito_intervento_id===siid).map(a=>+a.piante||0));
+  const maxPctInt = siid => MAXV(D.avanzamenti.filter(a=>a.sito_intervento_id===siid).map(a=>+a.pct||0));
   const intDi = c => attivi.filter(si=>{const i=DB.interventi.find(x=>x.id===si.intervento_id);return i&&i.categoria_id===c.id;});
   const cats = DB.categorie.filter(c=>intDi(c).length);
   const avzHtml = cats.map(c=>`<div class="cat-block"><h3 class="cat-h">${esc(c.nome)}</h3>`+
@@ -677,7 +681,7 @@ async function rCompila(){
       return `<div class="int-block">
         <div class="int-t">${esc(intv.nome)}${si.modalita==="conto_terzi"?' <span class="tag">conto terzi</span>':''}</div>
         ${svs.length? svs.map(sv=>`<div class="sv-av" data-svid="${sv.id}"><label>${esc(sv.nome)}</label>${fasceWidget(maxPct(sv.id))}</div>`).join("")
-                    : '<p class="muted" style="margin:4px 0">Nessuna sotto-voce: definiscile nel Setup.</p>'}
+                    : `<div class="sv-av" data-iav="${si.id}"><label class="muted">Avanzamento dell'intervento</label>${fasceWidget(maxPctInt(si.id))}</div>`}
       </div>`;
     }).join("")+`</div>`).join("");
   const intOpts = attivi.map(si=>{const i=DB.interventi.find(x=>x.id===si.intervento_id);return `<option value="${si.id}">${esc(i?i.nome:'?')}</option>`}).join("");
@@ -741,7 +745,9 @@ async function inviaCompilazione(){
   await sb.from("compilazioni").upsert({sito_id:sito,data,compilatore:comp},{onConflict:"sito_id,data"});
   for(const r of $$("#pane-compila .sv-av")){
     const on=r.querySelector(".fascia.on"); const pct=+(on?on.dataset.v:0)||0;
-    if(pct>0) await sb.from("avanzamenti").insert({sito_id:sito,sottovoce_id:+r.dataset.svid,data,compilatore:comp,pct});
+    if(pct<=0) continue;
+    if(r.dataset.svid) await sb.from("avanzamenti").insert({sito_id:sito,sottovoce_id:+r.dataset.svid,data,compilatore:comp,pct});
+    else if(r.dataset.iav) await sb.from("avanzamenti").insert({sito_id:sito,sito_intervento_id:+r.dataset.iav,data,compilatore:comp,pct});
   }
   for(const r of $$("#pane-compila [data-piante]")){
     const v=+r.querySelector(".cp-piante").value||0;
