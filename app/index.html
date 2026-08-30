@@ -662,6 +662,7 @@ function scadenzeSito(sitoId, D, R){
   return items;
 }
 function rigaScadenza(i, consentiRevoca){
+    const dIt=iso=>{const[a,m,g]=iso.split("-");return `${g}/${m}/${a}`;};
     const st=STATI[i.stato]||STATI.nd;
     const elapsed=(i.frac!=null)?Math.min(Math.max(1-i.frac,0),1):(i.stato==="scaduto"?1:0);
     const tempo = i.stato==="scaduto"?`scaduto da ${i.ritardoGiorni} gg`
@@ -1476,8 +1477,4 @@ async function anag(table,titolo,campi,perSito=false){
     anag(table,titolo,campi,perSito)};
 }
 
-/* ---------------- avvio ---------------- */
-start();
-</script>
-</body>
-</html>
+/* ---
