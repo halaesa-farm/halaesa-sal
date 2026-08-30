@@ -192,6 +192,22 @@ table.grid td:first-child{text-align:left;font-weight:600}
 .modal-body b{color:var(--forest)}
 .modal-act{display:flex;gap:10px}
 .modal-act .btn{flex:1}
+.flag-r{display:inline-block;font-size:12px;font-weight:800;background:#FADBD8;color:#C0392B;
+  padding:2px 7px;border-radius:10px;margin-left:6px;white-space:nowrap}
+.flag-y{display:inline-block;font-size:12px;font-weight:800;background:#FCF3CF;color:#9A6B1F;
+  padding:2px 7px;border-radius:10px;margin-left:6px;white-space:nowrap}
+.int-card.has-r{border-left:4px solid #C0392B}
+.int-card.has-y{border-left:4px solid #E8A33D}
+.int-card.annull{opacity:.5}
+.int-card.annull .int-head b{text-decoration:line-through}
+.miss{font-size:11.5px;color:#9A6B1F;margin-top:6px}
+.miss b{color:#7A5310}
+.switch{display:flex;gap:0;border:1.5px solid var(--forest);border-radius:var(--r-s);overflow:hidden;margin-bottom:12px}
+.switch button{flex:1;padding:10px 6px;font-size:13px;font-weight:700;background:var(--white);color:var(--forest)}
+.switch button.on{background:var(--forest);color:var(--white)}
+.lotto-tag{font-size:10px;font-weight:800;background:#E3E7DD;color:var(--forest-d);padding:2px 7px;
+  border-radius:10px;text-transform:uppercase;letter-spacing:.03em}
+.lotto-tag.urg{background:#C0392B;color:#fff}
 @media(min-width:700px){.fascia{font-size:14px}.dyn-row{gap:10px}}
 </style>
 </head>
@@ -264,7 +280,7 @@ async function start(){
   if(!prof){err("#login-err","Utente senza profilo: contattare la direzione.");await sb.auth.signOut();return}
   P = prof;
   // anagrafiche + lista master della gerarchia (categorie/interventi)
-  const [si,ca,inv,op,ma,pa,cr] = await Promise.all([
+  const [si,ca,inv,op,ma,pa,cr,pz] = await Promise.all([
     sb.from("siti").select("*").order("id"),
     sb.from("categorie").select("*").order("ordine"),
     sb.from("interventi").select("*").order("ordine"),
@@ -272,9 +288,10 @@ async function start(){
     sb.from("macchine").select("*").eq("attivo",true).order("nome"),
     sb.from("parametri").select("*"),
     sb.from("causali_ritardo").select("*").order("ordine"),
+    sb.from("categorie_perizia").select("*").order("ordine"),
   ]);
   DB = {siti:si.data||[], categorie:ca.data||[], interventi:inv.data||[],
-        operai:op.data||[], macchine:ma.data||[], causali:cr.data||[],
+        operai:op.data||[], macchine:ma.data||[], causali:cr.data||[], perizie:pz.data||[],
         par:Object.fromEntries((pa.data||[]).map(p=>[p.chiave,+p.valore]))};
   $("#v-login").classList.add("hide");$("#v-app").classList.remove("hide");
   $("#who-nome").textContent = P.nome;
@@ -331,21 +348,42 @@ async function datiSito(sito_id){
           macchine_giorno:mg.data||[], gasolio:ga.data||[], ritardi:ri.data||[]};
 }
 const MAXV = arr => arr.length ? Math.max(...arr) : 0;
+/* ---- dati mancanti (cartello giallo) e bandierina rossa ---- */
+const VUOTO = v => v===null || v===undefined || v==="";
+function mancanti(si, intv){
+  if(si.annullato) return [];
+  const m=[];
+  if(intv.tipo==="piante"){
+    if(VUOTO(si.piante_previste)) m.push("piante previste");
+    if(VUOTO(si.costo_unitario))  m.push("costo per pianta");
+  } else {
+    if(VUOTO(si.budget)) m.push("budget");
+    if(VUOTO(si.costo_unitario_voce)) m.push("costo unitario");
+  }
+  if(VUOTO(si.unita_misura)) m.push("unità di misura");
+  if(VUOTO(si.quantita))     m.push("quantità");
+  if(si.modalita==="da_definire") m.push("modalità");
+  if(VUOTO(si.scadenza))     m.push("scadenza");
+  return m;
+}
+const budgetEffDi = (si,intv) => intv.tipo==="piante"
+  ? (+si.piante_previste||0)*(+si.costo_unitario||0) : (+si.budget||0);
+
 function calcSito(sito_id, D){
-  const sito = DB.siti.find(s=>s.id===sito_id) || {ettari_totali:0};
+  const sito = DB.siti.find(s=>s.id===sito_id) || {};
   const prezzoGasolio = DB.par?.prezzo_gasolio || 0;
   const tariffaOp = id => (DB.operai.find(o=>o.id===id)||{}).tariffa_ora || 0;
   const tariffaMa = id => (DB.macchine.find(m=>m.id===id)||{}).tariffa_giorno || 0;
-  const attivi = D.sito_interventi.filter(si=>si.attivo);
+  const attivi = D.sito_interventi.filter(si=>si.attivo && !si.annullato);
   // ---- INTERVENTO ----
   const perInt = attivi.map(si=>{
     const intv = DB.interventi.find(i=>i.id===si.intervento_id) || {};
-    let avz=0, budgetEff=0;
+    let avz=0;
+    const budgetEff = budgetEffDi(si,intv);
     if(intv.tipo==="piante"){
       const prev=+si.piante_previste||0;
       const messe=MAXV(D.avanz_piante.filter(a=>a.sito_intervento_id===si.id).map(a=>+a.piante||0));
       avz = prev>0?Math.min(messe/prev,1):0;
-      budgetEff = prev*(+si.costo_unitario||0);
     } else {
       const svs=D.sottovoci.filter(sv=>sv.sito_intervento_id===si.id);
       if(svs.length){
@@ -353,28 +391,43 @@ function calcSito(sito_id, D){
         for(const sv of svs) sum += MAXV(D.avanzamenti.filter(a=>a.sottovoce_id===sv.id).map(a=>+a.pct||0))/100;
         avz=sum/svs.length;
       } else {
-        // nessuna sotto-voce: l'avanzamento si segna sull'intervento stesso
         avz = MAXV(D.avanzamenti.filter(a=>a.sito_intervento_id===si.id).map(a=>+a.pct||0))/100;
       }
-      budgetEff=+si.budget||0;
     }
     const costoBudget=budgetEff*avz;
     const ore=D.ore_uomo.filter(o=>o.sito_intervento_id===si.id)
                 .reduce((s,o)=>s+(+o.ore||0)*tariffaOp(o.operaio_id),0);
     return {si_id:si.id,intervento_id:si.intervento_id,categoria_id:intv.categoria_id,
-            nome:intv.nome,modalita:si.modalita,tipo:intv.tipo,avz,budgetEff,costoBudget,ore,costoInt:costoBudget+ore};
+            perizia_id:intv.categoria_perizia_id, lotto:si.lotto||"Intero sito",
+            nome:intv.nome,modalita:si.modalita,tipo:intv.tipo,avz,budgetEff,costoBudget,ore,
+            costoInt:costoBudget+ore, mancanti:mancanti(si,intv), daVerificare:!!si.da_verificare,
+            nota:si.nota_verifica, priorita:si.priorita};
   });
-  // ---- CATEGORIA (media interventi presenti) ----
-  const catMap={};
-  for(const p of perInt){(catMap[p.categoria_id]=catMap[p.categoria_id]||{sum:0,n:0}).sum+=p.avz;catMap[p.categoria_id].n++;}
-  const perCat=Object.entries(catMap).map(([cid,v])=>({categoria_id:+cid,avz:v.n?v.sum/v.n:0,nInt:v.n}));
-  // ---- SITO (pesi categoria, ricalibrati sui presenti) ----
-  let avzPesato=0,pesoTot=0;
-  for(const c of perCat){
-    const w=(D.sito_categorie.find(x=>x.categoria_id===c.categoria_id)||{}).peso_pct||0;
-    avzPesato+=(w/100)*c.avz; pesoTot+=w/100;
+  // ---- aggregazione generica pesata sul budget (fallback: media semplice) ----
+  function aggrega(items,chiave){
+    const m={};
+    for(const p of items){
+      const k=p[chiave]??0;
+      (m[k]=m[k]||{sum:0,n:0,b:0,bs:0}).sum+=p.avz; m[k].n++;
+      m[k].b+=p.budgetEff; m[k].bs+=p.budgetEff*p.avz;
+    }
+    return Object.entries(m).map(([k,v])=>({id:+k,
+      avz: v.b>0 ? v.bs/v.b : (v.n?v.sum/v.n:0), nInt:v.n, budget:v.b}));
   }
-  const avz=pesoTot>0?avzPesato/pesoTot:0;
+  const perCat = aggrega(perInt,"categoria_id").map(x=>({categoria_id:x.id,...x}));
+  const perPz  = aggrega(perInt,"perizia_id").map(x=>({perizia_id:x.id,...x}));
+  // ---- SITO: pesato sui budget; se non ci sono budget, pesi di categoria ----
+  const budTot = perInt.reduce((s,p)=>s+p.budgetEff,0);
+  let avz, pesoTot=0, avzPesato=0;
+  if(budTot>0){
+    avz = perInt.reduce((s,p)=>s+p.budgetEff*p.avz,0)/budTot;
+  } else {
+    for(const c of perCat){
+      const w=(D.sito_categorie.find(x=>x.categoria_id===c.categoria_id)||{}).peso_pct||0;
+      avzPesato+=(w/100)*c.avz; pesoTot+=w/100;
+    }
+    avz = pesoTot>0?avzPesato/pesoTot:0;
+  }
   const ettari=(+sito.ettari_totali||0)*avz;
   // ---- COSTI ----
   let bIn=0,bTe=0,cIn=0,cTe=0,ore=0;
@@ -387,7 +440,12 @@ function calcSito(sito_id, D){
   const gasolio=D.gasolio.reduce((s,g)=>s+(+g.litri||0),0)*prezzoGasolio;
   const gg_fermo=D.ritardi.reduce((s,r)=>s+(+r.giorni||0),0);
   const interno=cIn+ore+macchine+gasolio, terzisti=cTe, totale=interno+terzisti, budgetTot=bIn+bTe;
-  return {avz,avzPesato,pesoTot,ettari,perInt,perCat,gg_fermo,
+  // ---- segnalazioni ----
+  const nMancanti = perInt.filter(p=>p.mancanti.length).length + (VUOTO(sito.ettari_totali)?1:0);
+  const nRosse    = perInt.filter(p=>p.daVerificare).length;
+  const lotti     = [...new Set(D.sito_interventi.filter(x=>x.attivo&&!x.annullato).map(x=>x.lotto||"Intero sito"))];
+  return {avz,avzPesato,pesoTot,ettari,perInt,perCat,perPz,gg_fermo,nMancanti,nRosse,lotti,budTot,
+    ettariMancanti:VUOTO(sito.ettari_totali),
     costi:{costoMatInhouse:cIn,costoMatTerzi:cTe,ore,macchine,gasolio,interno,terzisti,totale,budgetTot,budgetInhouse:bIn,budgetTerzi:bTe}};
 }
 
@@ -412,6 +470,15 @@ function renderSitoBar(showIt){
   }
 }
 function dataIt(iso){ if(!iso)return ""; const[a,m,g]=iso.split("-"); return `${g}/${m}/${a}`; }
+function confermaTesto(msg){
+  return new Promise(res=>{
+    const m=$("#modal");
+    m.querySelector(".modal-body").innerHTML=esc(msg);
+    m.classList.remove("hide");
+    m.querySelector("#m-ok").onclick=()=>{m.classList.add("hide");res(true)};
+    m.querySelector("#m-no").onclick=()=>{m.classList.add("hide");res(false)};
+  });
+}
 function confermaSito(sito_id,data){
   const nome=DB.siti.find(s=>s.id===sito_id)?.nome||"?";
   return new Promise(res=>{
@@ -430,6 +497,14 @@ function stubPane(pane,titolo,blocco){
 }
 /* ====================== VISTE & DASHBOARD (Blocco 5) ====================== */
 const catNome = id => (DB.categorie.find(x=>x.id===id)||{}).nome || "?";
+const pzNome  = id => (DB.perizie.find(x=>x.id===id)||{}).nome || "non classificato";
+let VISTA = "categorie";   // "categorie" | "perizia"
+const vistaNome = id => VISTA==="perizia" ? pzNome(id) : catNome(id);
+const vistaCols = () => VISTA==="perizia" ? DB.perizie : DB.categorie;
+const vistaPer  = R => VISTA==="perizia"
+  ? R.perPz.map(x=>({id:x.perizia_id,avz:x.avz,budget:x.budget,nInt:x.nInt}))
+  : R.perCat.map(x=>({id:x.categoria_id,avz:x.avz,budget:x.budget,nInt:x.nInt}));
+window.setVista = v => { VISTA=v; rDash(); };
 const pillCol = f => f>=0.75?"ok":f>=0.25?"late":"bad";
 const costRow = (l,v,tot) => `<div class="cost-r ${tot?'cost-tot':''}"><span>${l}</span><b>${eur(v)}</b></div>`;
 /* ---- Scadenze / gantt a scadenze ---- */
@@ -532,6 +607,27 @@ window.revocaProroga = async (id, val) => {
   toast(val?"Proroga revocata":"Proroga ripristinata");
   rDash();
 };
+function segnalazioni(all){
+  const rows=[];
+  for(const {sito,R} of all){
+    if(R.ettariMancanti) rows.push({t:"y",sito:sito.nome,nome:"Ettari del sito",txt:"ettari totali non inseriti"});
+    for(const p of R.perInt){
+      if(p.daVerificare) rows.push({t:"r",sito:sito.nome,nome:p.nome,lotto:p.lotto,txt:p.nota||"cifre da verificare"});
+      if(p.mancanti.length) rows.push({t:"y",sito:sito.nome,nome:p.nome,lotto:p.lotto,txt:"da inserire: "+p.mancanti.join(", ")});
+    }
+  }
+  const r=rows.filter(x=>x.t==="r"), y=rows.filter(x=>x.t==="y");
+  if(!r.length && !y.length) return `<div class="card"><h2>Dati da verificare</h2>
+    <p class="muted">Nessuna segnalazione: tutti i dati del setup sono compilati e nessuna cifra è in dubbio.</p></div>`;
+  const riga=x=>`<div class="att-row"><div class="t"><span>${x.t==="r"?"🚩":"⚠️"} ${esc(x.nome)}</span>
+    <span class="muted" style="font-weight:400">${esc(x.sito)}${x.lotto&&x.lotto!=="Intero sito"?" · "+esc(x.lotto):""}</span></div>
+    <div class="s"><span>${esc(x.txt)}</span></div></div>`;
+  return `<div class="card"><h2>Dati da verificare</h2>
+    ${r.length?`<div class="banner banner-alert">🚩 ${r.length} ${r.length===1?"cifra non torna":"cifre non tornano"} tra le fonti</div>${r.map(riga).join("")}`:""}
+    ${y.length?`<div class="banner">⚠️ ${y.length} ${y.length===1?"voce ha":"voci hanno"} dati ancora da inserire nel Setup</div>${y.slice(0,40).map(riga).join("")}
+      ${y.length>40?`<p class="muted">…e altre ${y.length-40}. Completale dal Setup.</p>`:""}`:""}
+  </div>`;
+}
 async function calcTutti(){
   const out=[];
   for(const s of DB.siti){ const D=await datiSito(s.id); out.push({sito:s, D, R:calcSito(s.id,D)}); }
@@ -547,13 +643,13 @@ async function rSito(){
     const ints=R.perInt.filter(p=>p.categoria_id===pc.categoria_id);
     return `<div class="card" style="padding:12px">
       <div class="cat-row"><b>${esc(catNome(pc.categoria_id))}</b><span class="pill ${pillCol(pc.avz)}">${Math.round(pc.avz*100)}%</span></div>
-      ${ints.map(p=>`<div class="int-row"><span>${esc(p.nome)}${p.modalita==="conto_terzi"?' <span class="tag">terzi</span>':''}</span>
+      ${ints.map(p=>`<div class="int-row"><span>${esc(p.nome)}${p.modalita==="conto_terzi"?' <span class="tag">terzi</span>':''}${p.lotto&&p.lotto!=="Intero sito"?` <span class="lotto-tag urg">${esc(p.lotto)}</span>`:''}${p.daVerificare?' 🚩':''}${p.mancanti.length?' ⚠️':''}</span>
         <span class="muted">${Math.round(p.avz*100)}% · ${eur(p.costoInt)}</span></div>`).join("")}
     </div>`;}).join("");
   $("#pane-sito").innerHTML=`
    <div class="kpi">
      <div class="k"><b>${Math.round(R.avz*100)}%</b><span>Avanzamento sito</span></div>
-     <div class="k"><b>${(R.ettari||0).toLocaleString("it-IT",{maximumFractionDigits:1})}</b><span>Ettari completati / ${s.ettari_totali}</span></div>
+     <div class="k"><b>${(R.ettari||0).toLocaleString("it-IT",{maximumFractionDigits:1})}</b><span>Ettari completati / ${s.ettari_totali??"—"}</span></div>
      <div class="k"><b>${eur(c.totale)}</b><span>Costo a oggi</span></div>
      <div class="k"><b>${eur(c.budgetTot)}</b><span>Budget materiali/preventivi</span></div>
    </div>
@@ -589,15 +685,25 @@ async function rDash(){
     <td>${eur(R.costi.interno)}</td><td>${eur(R.costi.terzisti)}</td>
     <td title="materiali interni e preventivi maturati">${eur(R.costi.totale)}</td><td>${eur(R.costi.budgetTot)}</td></tr>`).join("");
   // categorie presenti in almeno un sito (per heatmap avanzamento sito×categoria)
-  const catAvz = {}; // sito_id -> {cat_id: avz}
-  all.forEach(({sito,R})=>{catAvz[sito.id]={};R.perCat.forEach(pc=>catAvz[sito.id][pc.categoria_id]=pc.avz);});
-  let catCols = DB.categorie.filter(c=>all.some(({sito})=>catAvz[sito.id][c.id]!==undefined));
-  if(!catCols.length) catCols = DB.categorie; // nessun intervento attivo: mostra comunque la griglia
+  const catAvz = {}; // sito_id -> {id: avz}
+  const catBud = {};
+  all.forEach(({sito,R})=>{catAvz[sito.id]={};catBud[sito.id]={};
+    vistaPer(R).forEach(pc=>{catAvz[sito.id][pc.id]=pc.avz;catBud[sito.id][pc.id]=pc.budget;});});
+  let catCols = vistaCols().filter(c=>all.some(({sito})=>catAvz[sito.id][c.id]!==undefined));
+  if(!catCols.length) catCols = vistaCols();
   const heatCell=f=>{ if(f===undefined) return `<td style="background:#E6E8E1;color:var(--mut)">—</td>`;
     const v=Math.round(f*100); const bg=f>=0.75?"#1F5C2E":f>=0.5?"#4E8A3A":f>=0.25?"#8CBF66":f>0?"#CFE3B4":"#EEE";
     const col=f>=0.5?"#fff":"#1A2418"; return `<td style="background:${bg};color:${col};text-align:center;font-weight:700">${v}%</td>`;};
   const heat = `<table class="grid"><tr><th>Sito</th>${catCols.map(c=>`<th title="${esc(c.nome)}" style="text-align:center">${esc(c.nome.slice(0,9))}</th>`).join("")}</tr>
     ${all.map(({sito})=>`<tr><td>${esc(sito.nome)}</td>${catCols.map(c=>heatCell(catAvz[sito.id][c.id])).join("")}</tr>`).join("")}</table>`;
+  // budget per colonna della vista
+  const budCol = catCols.map(c=>({nome:c.nome, budget:all.reduce((s2,{sito})=>s2+(catBud[sito.id][c.id]||0),0),
+    avz:(()=>{let b=0,bs=0;all.forEach(({sito,R})=>{const v=vistaPer(R).find(x=>x.id===c.id);if(v){b+=v.budget;bs+=v.budget*v.avz;}});return b>0?bs/b:0;})()}));
+  const budTotAll = budCol.reduce((s2,x)=>s2+x.budget,0);
+  const tabBud = `<table class="grid"><tr><th>${VISTA==="perizia"?"Categoria perizia":"Categoria"}</th><th>Budget</th><th>% sul totale</th><th>Avanz.</th></tr>
+    ${budCol.filter(x=>x.budget>0).sort((a,b)=>b.budget-a.budget).map(x=>`<tr><td>${esc(x.nome)}</td><td>${eur(x.budget)}</td>
+      <td>${budTotAll?Math.round(x.budget/budTotAll*100):0}%</td><td>${Math.round(x.avz*100)}%</td></tr>`).join("")}
+    <tr><td><b>TOTALE</b></td><td><b>${eur(budTotAll)}</b></td><td><b>100%</b></td><td></td></tr></table>`;
   // EFFICIENZA (indicatori onesti nel nuovo modello)
   const eff=all.map(({sito,R})=>({nome:sito.nome,avz:R.avz,eurHa:R.ettari>0?R.costi.totale/R.ettari:null,fermo:R.gg_fermo}));
   const haV=eff.map(e=>e.eurHa).filter(v=>v!=null); const haMin=Math.min(...haV,0),haMax=Math.max(...haV,1);
@@ -618,24 +724,36 @@ async function rDash(){
      <div class="k"><b>${T.ettari.toLocaleString("it-IT",{maximumFractionDigits:1})}/${T.ettariTot}</b><span>Ettari completati</span></div>
      <div class="k"><b>${eur(T.budget)}</b><span>Budget materiali/preventivi</span></div>
    </div>
+   ${segnalazioni(all)}
+   <div class="switch">
+     <button class="${VISTA==="categorie"?"on":""}" onclick="setVista('categorie')">Per lavorazione</button>
+     <button class="${VISTA==="perizia"?"on":""}" onclick="setVista('perizia')">Per categoria perizia</button>
+   </div>
+   <div class="card"><h2>Budget e avanzamento — ${VISTA==="perizia"?"categorie perizia":"categorie di lavorazione"}</h2>
+     <div class="scroll-x">${tabBud}</div>
+     <p class="muted" style="margin-top:8px">Gli avanzamenti sono pesati sui budget: una voce da 300.000 € conta più di una da 3.000 €.</p></div>
    ${renderScadenze(scadAll,"Scadenze portfolio (gantt a scadenze)",true,!isReadOnly())}
    <div class="card"><h2>Consolidamento 7 siti</h2><div class="scroll-x">
      <table class="grid"><tr><th>Sito</th><th>Avz.</th><th>Ettari</th><th>Interno</th><th>Conto terzi</th><th>Totale</th><th>Budget</th></tr>${cons}</table>
    </div><p class="muted" style="margin-top:8px">Il totale include ore/macchine/gasolio; il budget è solo materiali e preventivi.</p></div>
-   <div class="card"><h2>Heatmap avanzamento (sito × categoria)</h2><div class="scroll-x">${heat}</div></div>
+   <div class="card"><h2>Heatmap avanzamento (sito × ${VISTA==="perizia"?"categoria perizia":"categoria"})</h2><div class="scroll-x">${heat}</div></div>
    <div class="card"><h2>Efficienza dei siti a confronto</h2>
      <p class="muted" style="margin-bottom:12px">Indicatori confrontabili tra siti. Verde = buono, rosso = critico. €/ha e giorni fermo: colore relativo al portfolio (più basso = meglio).</p>
      <div class="scroll-x"><div id="eff-box">${effHead}${effBody}</div></div>
      <div class="efflegend"><span><span class="sw" style="background:#1F5C2E"></span>ottimo</span><span><span class="sw" style="background:#8CBF66"></span>buono</span><span><span class="sw" style="background:#E8A33D"></span>attenzione</span><span><span class="sw" style="background:#C0392B"></span>critico</span><span><span class="sw" style="background:#E6E8E1"></span>n/d</span></div>
    </div>
    ${isReadOnly()?"":`<div class="card"><h2>Esporta dati (CSV)</h2><div class="row2">
-     ${["categorie","interventi","sito_interventi","sottovoci","sito_categorie","avanzamenti","avanz_piante","ore_uomo","macchine_giorno","gasolio","ritardi"].map(t=>`<button class="btn btn-o btn-sm" data-csv="${t}" style="margin-bottom:8px">${t.replace(/_/g," ")}</button>`).join("")}
-     <button class="btn btn-g btn-sm" id="csv-consol" style="margin-bottom:8px">consolidamento</button></div></div>`}`;
+     ${["categorie","categorie_perizia","interventi","sito_interventi","sottovoci","sito_categorie","avanzamenti","avanz_piante","ore_uomo","macchine_giorno","gasolio","ritardi"].map(t=>`<button class="btn btn-o btn-sm" data-csv="${t}" style="margin-bottom:8px">${t.replace(/_/g," ")}</button>`).join("")}
+     <button class="btn btn-g btn-sm" id="csv-consol" style="margin-bottom:8px">consolidamento interventi</button></div></div>`}`;
   $$("[data-csv]").forEach(b=>b.onclick=()=>exportCsv(b.dataset.csv));
   if($("#csv-consol"))$("#csv-consol").onclick=()=>{
-    const rows=[["sito","avanzamento_pct","ettari_completati","costo_interno","costo_conto_terzi","costo_totale","budget"]];
-    all.forEach(({sito,R})=>rows.push([sito.nome,Math.round(R.avz*100),R.ettari.toFixed(2),R.costi.interno,R.costi.terzisti,R.costi.totale,R.costi.budgetTot]));
-    dlCsv("consolidamento.csv",rows.map(r=>r.join(",")).join("\n"));
+    const rows=[["sito","lotto","categoria","categoria_perizia","intervento","modalita","priorita","budget","avanzamento_pct","costo_maturato","da_verificare","dati_mancanti"]];
+    all.forEach(({sito,R})=>R.perInt.forEach(p=>rows.push([
+      sito.nome, p.lotto, catNome(p.categoria_id), pzNome(p.perizia_id), p.nome, p.modalita, p.priorita||"",
+      Math.round(p.budgetEff), Math.round(p.avz*100), Math.round(p.costoInt),
+      p.daVerificare?"SI":"", p.mancanti.join("; ")
+    ].map(v=>`"${String(v).replace(/"/g,'""')}"`))));
+    dlCsv("consolidamento_interventi.csv",rows.map(r=>r.join(",")).join("\n"));
   };
 }
 async function exportCsv(table){
@@ -840,7 +958,7 @@ const SETUP = {
    <p class="muted">La data di avvio lavori è la base per calcolare il tempo residuo alle scadenze degli interventi.</p>
    ${data.map(s=>`<div class="dyn-row" style="grid-template-columns:1.2fr .7fr 1fr" data-id="${s.id}">
      <b style="align-self:center">${esc(s.nome)}</b>
-     <div><label>Ettari</label><input type="number" class="s-ha" value="${s.ettari_totali}"></div>
+     <div><label>Ettari ${s.ettari_totali===null||s.ettari_totali===undefined?'<span class="flag-y">⚠️</span>':''}</label><input type="number" step="0.01" class="s-ha" value="${s.ettari_totali??''}"></div>
      <div><label>Avvio lavori</label><input type="date" class="s-avvio" value="${s.data_avvio||""}"></div>
    </div>`).join("")}
    <button class="btn btn-p" id="s-save">Salva siti</button></div>`;
@@ -851,7 +969,7 @@ const SETUP = {
     DB.par.prezzo_gasolio=v;toast("Parametri salvati ✓")};
   $("#s-save").onclick=async()=>{
     for(const r of $$("#setup-body [data-id]"))
-      await sb.from("siti").update({ettari_totali:+r.querySelector(".s-ha").value,data_avvio:r.querySelector(".s-avvio").value||null}).eq("id",+r.dataset.id);
+      await sb.from("siti").update({ettari_totali:r.querySelector(".s-ha").value===""?null:+r.querySelector(".s-ha").value,data_avvio:r.querySelector(".s-avvio").value||null}).eq("id",+r.dataset.id);
     toast("Siti salvati ✓");DB.siti=(await sb.from("siti").select("*").order("id")).data||DB.siti;
   };
  },
@@ -862,68 +980,134 @@ const SETUP = {
  async interventi(){
   const sid=+($("#i-sito")?.value||DB.siti[0].id);
   const cat=+($("#i-cat")?.value||DB.categorie[0].id);
+  const flt=$("#i-lotto")?.value||"";
   const {data:siAll}=await sb.from("sito_interventi").select("*").eq("sito_id",sid);
   const siIds=(siAll||[]).map(x=>x.id);
   let svAll=[];
   if(siIds.length){const r=await sb.from("sottovoci").select("*").in("sito_intervento_id",siIds).order("ordine");svAll=r.data||[];}
-  const intsCat=DB.interventi.filter(i=>i.categoria_id===cat);
-  const rows=intsCat.map(intv=>{
-    const si=(siAll||[]).find(x=>x.intervento_id===intv.id)||{};
-    const attivo=!!si.attivo, mod=si.modalita||intv.modalita||"in_house";
-    const svs=svAll.filter(s=>s.sito_intervento_id===si.id);
-    const isP=intv.tipo==="piante";
-    return `<div class="card int-card" data-int="${intv.id}" data-si="${si.id||""}" style="padding:12px">
-      <label class="int-head"><input type="checkbox" class="i-attivo" ${attivo?"checked":""}> <b>${esc(intv.nome)}</b>
-        ${isP?'<span class="tag">piante</span>':''}</label>
-      <div class="i-body ${attivo?"":"hide"}">
+  const lotti=[...new Set((siAll||[]).map(x=>x.lotto||"Intero sito"))].sort();
+  const righe=(siAll||[]).filter(x=>{
+    const iv=DB.interventi.find(i=>i.id===x.intervento_id);
+    return iv && iv.categoria_id===cat && (!flt || (x.lotto||"Intero sito")===flt);
+  }).sort((x,y)=>(x.lotto||"").localeCompare(y.lotto||"")||x.intervento_id-y.intervento_id);
+  const V = v => (v===null||v===undefined)?"":v;
+  const cards=righe.map(si=>{
+    const intv=DB.interventi.find(i=>i.id===si.intervento_id)||{};
+    const isP=intv.tipo==="piante", attivo=!!si.attivo, ann=!!si.annullato;
+    const miss=mancanti(si,intv);
+    const svs=svAll.filter(x=>x.sito_intervento_id===si.id);
+    const lot=si.lotto||"Intero sito";
+    const cls=[ann?"annull":"", si.da_verificare?"has-r":(miss.length?"has-y":"")].join(" ");
+    return `<div class="card int-card ${cls}" data-si="${si.id}" data-int="${intv.id}" style="padding:12px">
+      <label class="int-head"><input type="checkbox" class="i-attivo" ${attivo?"checked":""} ${ann?"disabled":""}>
+        <b>${esc(intv.nome)}</b>
+        <span class="lotto-tag ${lot!=="Intero sito"?"urg":""}">${esc(lot)}</span>
+        ${isP?'<span class="tag">piante</span>':''}
+        ${si.da_verificare?'<span class="flag-r">🚩 da verificare</span>':''}
+        ${(!ann&&miss.length)?`<span class="flag-y">⚠️ ${miss.length} da inserire</span>`:''}
+        ${ann?'<span class="flag-r">annullata</span>':''}</label>
+      ${si.nota_verifica?`<p class="miss" style="color:#C0392B">${esc(si.nota_verifica)}</p>`:''}
+      ${(!ann&&miss.length)?`<p class="miss">Da inserire: <b>${miss.join(", ")}</b></p>`:''}
+      <div class="i-body ${attivo&&!ann?"":"hide"}">
         <div class="row2" style="margin-top:8px">
+          <div><label>Lotto / perimetro</label><input class="i-lot" value="${esc(lot)}"></div>
           <div><label>Modalità</label><select class="i-mod">
-            <option value="in_house" ${mod==="in_house"?"selected":""}>In house</option>
-            <option value="conto_terzi" ${mod==="conto_terzi"?"selected":""}>Conto terzi</option></select></div>
+            <option value="da_definire" ${si.modalita==="da_definire"?"selected":""}>— da definire —</option>
+            <option value="in_house" ${si.modalita==="in_house"?"selected":""}>In house</option>
+            <option value="conto_terzi" ${si.modalita==="conto_terzi"?"selected":""}>Conto terzi (terzista)</option></select></div>
+          <div><label>Unità di misura</label><input class="i-um" value="${esc(V(si.unita_misura))}" placeholder="ha, ml, mq, cad…"></div>
+          <div><label>Quantità</label><input type="number" step="0.01" class="i-qt" value="${V(si.quantita)}"></div>
           ${isP
-            ? `<div><label>Piante previste</label><input type="number" class="i-pp" value="${si.piante_previste||""}"></div>
-               <div><label>Costo €/pianta</label><input type="number" step="0.01" class="i-cu" value="${si.costo_unitario||""}"></div>`
-            : `<div><label>Budget € (materiali o preventivo terzista)</label><input type="number" class="i-bud" value="${si.budget||0}"></div>`}
-          <div><label>Scadenza (deadline)</label><input type="date" class="i-scad" value="${si.scadenza||""}"></div>
+            ? `<div><label>Piante previste</label><input type="number" class="i-pp" value="${V(si.piante_previste)}"></div>
+               <div><label>Costo €/pianta</label><input type="number" step="0.01" class="i-cu" value="${V(si.costo_unitario)}"></div>`
+            : `<div><label>Costo unitario €</label><input type="number" step="0.01" class="i-cuv" value="${V(si.costo_unitario_voce)}"></div>
+               <div><label>Budget €</label><input type="number" step="0.01" class="i-bud" value="${V(si.budget)}"></div>`}
+          <div><label>Priorità</label><select class="i-pri">
+            ${["Alta","Media","Bassa"].map(p=>`<option ${si.priorita===p?"selected":""}>${p}</option>`).join("")}</select></div>
+          <div><label>Scadenza</label><input type="date" class="i-scad" value="${V(si.scadenza)}"></div>
         </div>
         ${isP?"":`<div style="margin-top:10px">
-          <label class="muted">Sotto-voci (col C) — la quantità = numero di sotto-voci; il budget si ripartisce tra esse</label>
-          <div class="sv-list">${svs.map(s=>svRow(s.id,s.nome)).join("")}</div>
+          <label class="muted">Sotto-voci</label>
+          <div class="sv-list">${svs.map(x=>svRow(x.id,x.nome)).join("")}</div>
           <button class="add sv-add">+ Aggiungi sotto-voce</button></div>`}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn btn-o btn-sm i-ann">${ann?"Ripristina lavorazione":"Cancella lavorazione"}</button>
+        ${si.da_verificare?'<button class="btn btn-o btn-sm i-risolvi">Risolvi 🚩</button>':''}
       </div></div>`;
   }).join("");
+  const addOpts=DB.interventi.filter(i=>i.categoria_id===cat)
+    .map(i=>`<option value="${i.id}">${esc(i.nome)}</option>`).join("");
   $("#setup-body").innerHTML=`<div class="card"><h2>Interventi e sotto-voci</h2>
     <div class="row2">
-      <div><label>Sito</label><select id="i-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===sid?"selected":""}>${esc(s.nome)}</option>`).join("")}</select></div>
+      <div><label>Sito</label><select id="i-sito">${DB.siti.map(x=>`<option value="${x.id}" ${x.id===sid?"selected":""}>${esc(x.nome)}</option>`).join("")}</select></div>
       <div><label>Categoria</label><select id="i-cat">${DB.categorie.map(c=>`<option value="${c.id}" ${c.id===cat?"selected":""}>${esc(c.nome)}</option>`).join("")}</select></div>
+      <div><label>Lotto</label><select id="i-lotto"><option value="">— tutti —</option>
+        ${lotti.map(l=>`<option ${flt===l?"selected":""}>${esc(l)}</option>`).join("")}</select></div>
     </div>
-    <p class="muted">Attiva gli interventi presenti in questo sito (gli altri non contano nell'avanzamento). Imposta budget e modalità, ed espandi le sotto-voci della colonna C.</p></div>
-    ${rows||'<div class="card"><p class="muted">Nessun intervento in questa categoria.</p></div>'}
+    <p class="muted">🚩 = cifre da verificare · ⚠️ = dati ancora da inserire. Il cartello giallo sparisce quando tutti i campi sono compilati (anche con 0) oppure la lavorazione è cancellata.</p></div>
+    ${cards||'<div class="card"><p class="muted">Nessun intervento attivato in questa categoria per questo sito.</p></div>'}
+    <div class="card"><h2>Aggiungi lavorazione</h2>
+      <div class="row2">
+        <div><label>Intervento</label><select id="add-int">${addOpts}</select></div>
+        <div><label>Lotto</label><input id="add-lot" value="Intero sito"></div>
+      </div>
+      <button class="btn btn-g btn-sm" id="add-go" style="margin-top:10px">+ Aggiungi al sito</button></div>
     <button class="btn btn-p" id="i-save">Salva categoria</button>`;
   $("#i-sito").onchange=()=>SETUP.interventi();
   $("#i-cat").onchange=()=>SETUP.interventi();
+  $("#i-lotto").onchange=()=>SETUP.interventi();
   $$(".i-attivo").forEach(ch=>ch.onchange=()=>ch.closest(".int-card").querySelector(".i-body").classList.toggle("hide",!ch.checked));
+  // budget = quantità x costo unitario (auto, sovrascrivibile)
+  $$(".int-card").forEach(card=>{
+    const qt=card.querySelector(".i-qt"), cu=card.querySelector(".i-cuv"), bd=card.querySelector(".i-bud");
+    if(qt&&cu&&bd){ const calc=()=>{ if(qt.value!==""&&cu.value!=="") bd.value=(+qt.value*+cu.value).toFixed(2); };
+      qt.oninput=calc; cu.oninput=calc; }
+  });
   function bindDel(){$$(".sv-del").forEach(x=>x.onclick=()=>x.closest(".sv-row").remove());}
   $$(".sv-add").forEach(b=>b.onclick=()=>{b.previousElementSibling.insertAdjacentHTML("beforeend",svRow("",""));bindDel();});
   bindDel();
+  $$(".i-ann").forEach(b=>b.onclick=async()=>{
+    const card=b.closest(".int-card"), id=+card.dataset.si;
+    const era=card.classList.contains("annull");
+    if(!era && !await confermaTesto("Cancellare questa lavorazione? Esce dai conti e dagli avvisi, ma resta tracciata nel registro.")) return;
+    const {error}=await sb.from("sito_interventi").update({annullato:!era, attivo:era?true:false}).eq("id",id);
+    if(error) return toast("Errore");
+    toast(era?"Lavorazione ripristinata ✓":"Lavorazione cancellata ✓"); SETUP.interventi();
+  });
+  $$(".i-risolvi").forEach(b=>b.onclick=async()=>{
+    const id=+b.closest(".int-card").dataset.si;
+    const {error}=await sb.from("sito_interventi").update({da_verificare:false}).eq("id",id);
+    if(error) return toast("Errore"); toast("Segnalazione risolta ✓"); SETUP.interventi();
+  });
+  $("#add-go").onclick=async()=>{
+    const rec={sito_id:sid,intervento_id:+$("#add-int").value,lotto:$("#add-lot").value.trim()||"Intero sito",attivo:true};
+    const {error}=await sb.from("sito_interventi").insert(rec);
+    if(error) return toast(error.code==="23505"?"Già presente su questo lotto":"Errore");
+    toast("Lavorazione aggiunta ✓"); SETUP.interventi();
+  };
   $("#i-save").onclick=async()=>{
+    const N=el=>{ if(!el) return null; return el.value===""?null:+el.value; };
     for(const card of $$(".int-card")){
-      const intId=+card.dataset.int, intv=DB.interventi.find(i=>i.id===intId);
-      const attivo=card.querySelector(".i-attivo").checked;
-      const rec={sito_id:sid,intervento_id:intId,attivo,modalita:card.querySelector(".i-mod").value,scadenza:card.querySelector(".i-scad").value||null};
-      if(intv.tipo==="piante"){rec.piante_previste=+card.querySelector(".i-pp").value||0;rec.costo_unitario=+card.querySelector(".i-cu").value||0;rec.budget=0;}
-      else rec.budget=+card.querySelector(".i-bud").value||0;
-      const {data:up}=await sb.from("sito_interventi").upsert(rec,{onConflict:"sito_id,intervento_id"}).select().single();
-      const siId=(up&&up.id)||+card.dataset.si||null;
-      if(intv.tipo!=="piante" && siId){
+      if(card.classList.contains("annull")) continue;
+      const id=+card.dataset.si, intv=DB.interventi.find(i=>i.id===+card.dataset.int);
+      const g=c=>card.querySelector(c);
+      const rec={attivo:g(".i-attivo").checked, lotto:g(".i-lot").value.trim()||"Intero sito",
+        modalita:g(".i-mod").value, unita_misura:g(".i-um").value.trim()||null,
+        quantita:N(g(".i-qt")), priorita:g(".i-pri").value, scadenza:g(".i-scad").value||null};
+      if(intv.tipo==="piante"){ rec.piante_previste=N(g(".i-pp")); rec.costo_unitario=N(g(".i-cu")); }
+      else { rec.costo_unitario_voce=N(g(".i-cuv")); rec.budget=N(g(".i-bud")); }
+      const {error}=await sb.from("sito_interventi").update(rec).eq("id",id);
+      if(error){ toast("Errore su "+intv.nome); continue; }
+      if(intv.tipo!=="piante"){
         const present=[];
         for(const r of card.querySelectorAll(".sv-row")){
           const nome=r.querySelector(".sv-nome").value.trim(); if(!nome)continue;
           const svid=r.dataset.svid;
           if(svid){await sb.from("sottovoci").update({nome}).eq("id",+svid);present.push(+svid);}
-          else{const {data:ins}=await sb.from("sottovoci").insert({sito_intervento_id:siId,nome}).select().single();if(ins)present.push(ins.id);}
+          else{const {data:ins}=await sb.from("sottovoci").insert({sito_intervento_id:id,nome}).select().single();if(ins)present.push(ins.id);}
         }
-        const existing=(await sb.from("sottovoci").select("id").eq("sito_intervento_id",siId)).data||[];
+        const existing=(await sb.from("sottovoci").select("id").eq("sito_intervento_id",id)).data||[];
         for(const e of existing) if(!present.includes(e.id)) await sb.from("sottovoci").delete().eq("id",e.id);
       }
     }
