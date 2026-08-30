@@ -208,6 +208,24 @@ table.grid td:first-child{text-align:left;font-weight:600}
 .lotto-tag{font-size:10px;font-weight:800;background:#E3E7DD;color:var(--forest-d);padding:2px 7px;
   border-radius:10px;text-transform:uppercase;letter-spacing:.03em}
 .lotto-tag.urg{background:#C0392B;color:#fff}
+.gt-head{display:grid;grid-template-columns:1.9fr 3.4fr;gap:10px;font-size:10px;font-weight:800;
+  color:var(--mut);text-transform:uppercase;letter-spacing:.04em;padding:0 0 6px;border-bottom:1px solid var(--line)}
+.gt-row{display:grid;grid-template-columns:1.9fr 3.4fr;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid #F0F2EC}
+.gt-row:last-child{border-bottom:none}
+.gt-nome{font-size:12.5px;font-weight:700}
+.gt-sub{font-size:10.5px;color:var(--mut);margin-top:1px}
+.gt-track{position:relative;height:26px;background:#F2F4EE;border-radius:6px}
+.gt-bar{position:absolute;top:4px;height:18px;border-radius:5px;opacity:.35}
+.gt-done{position:absolute;top:4px;height:18px;border-radius:5px}
+.gt-dl{position:absolute;top:-2px;width:2px;height:30px;background:#8E2820}
+.gt-dl::after{content:"scad.";position:absolute;top:-11px;left:50%;transform:translateX(-50%);font-size:8px;font-weight:800;color:#8E2820}
+.gt-today{position:absolute;top:-2px;width:2px;height:30px;background:var(--ink)}
+.gt-today::after{content:"oggi";position:absolute;top:-11px;left:50%;transform:translateX(-50%);font-size:8px;font-weight:700;color:var(--ink)}
+.gt-pct{position:absolute;right:6px;top:5px;font-size:10px;font-weight:800;color:var(--mut)}
+.gt-al{font-size:11px;font-weight:700;margin-top:3px}
+.gt-scale{display:flex;justify-content:space-between;font-size:9.5px;color:var(--mut);padding-top:6px}
+.gt-dep{font-size:10.5px;color:var(--moss);margin-top:1px}
+@media(max-width:620px){.gt-head,.gt-row{grid-template-columns:1fr}.gt-head div:last-child{display:none}}
 .sg-tot{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
 .sg-tot span{background:#EEF1EA;border-radius:8px;padding:6px 10px;font-size:12px;color:var(--mut)}
 .sg-tot b{color:var(--forest);font-size:14px}
@@ -260,6 +278,7 @@ table.grid td:first-child{text-align:left;font-weight:600}
     <div id="pane-compila"></div>
     <div id="pane-gasolio" class="hide"></div>
     <div id="pane-sito" class="hide"></div>
+    <div id="pane-gantt" class="hide"></div>
     <div id="pane-dash" class="hide"></div>
     <div id="pane-setup" class="hide"></div>
   </div>
@@ -329,6 +348,7 @@ const TABS = {
   compila:{ic:"📝",l:"Compila",who:p=>!isReadOnly()},
   gasolio:{ic:"⛽",l:"Gasolio",who:p=>!isReadOnly()},
   sito:{ic:"📍",l:"Il mio sito",who:p=>!isReadOnly()&&!isSuper()&&p.sito_id},
+  gantt:{ic:"📅",l:"Gantt",who:p=>true},
   dash:{ic:"📊",l:"Dashboard",who:p=>isSuper()||isReadOnly()},
   setup:{ic:"⚙️",l:"Setup",who:p=>isSuper()&&!isReadOnly()},
 };
@@ -341,9 +361,9 @@ function buildTabs(){
 function show(k){
   CURRENT_TAB=k;
   $$(".tab").forEach(b=>b.classList.toggle("on",b.dataset.t===k));
-  ["compila","gasolio","sito","dash","setup"].forEach(p=>$("#pane-"+p).classList.toggle("hide",p!==k));
+  ["compila","gasolio","sito","gantt","dash","setup"].forEach(p=>$("#pane-"+p).classList.toggle("hide",p!==k));
   renderSitoBar(k==="compila"||k==="gasolio");
-  ({compila:rCompila,gasolio:rGasolio,sito:rSito,dash:rDash,setup:rSetup})[k]();
+  ({compila:rCompila,gasolio:rGasolio,sito:rSito,gantt:rGantt,dash:rDash,setup:rSetup})[k]();
 }
 
 /* ---------------- MOTORE COSTI (logica validata) ----------------
@@ -386,10 +406,72 @@ function mancanti(si, intv){
   }
   if(VUOTO(si.unita_misura)) m.push("unità di misura");
   if(VUOTO(si.quantita))     m.push("quantità");
+  if(VUOTO(si.durata_giorni))m.push("durata");
+  if(VUOTO(si.data_inizio) && !si.dipende_da) m.push("data inizio");
   if(si.modalita==="da_definire") m.push("modalità");
   if(VUOTO(si.scadenza))     m.push("scadenza");
   return m;
 }
+/* ---- pianificazione: risolve la catena delle dipendenze ---- */
+const DAY=86400000;
+const toD = iso => iso ? new Date(iso+"T00:00:00") : null;
+const toIso = d => d.toISOString().slice(0,10);
+const addGG = (iso,n) => { const d=toD(iso); d.setDate(d.getDate()+n); return toIso(d); };
+const diffGG = (a,b) => Math.round((toD(a)-toD(b))/DAY);
+
+// per ogni riga: inizio effettivo, fine, ritardo sulla scadenza, catena e anelli
+function pianifica(righe){
+  const byId=new Map(righe.map(r=>[r.id,r]));
+  const out=new Map();
+  function calc(r,visti){
+    if(out.has(r.id)) return out.get(r.id);
+    if(visti.has(r.id)){ const c={ciclo:true}; out.set(r.id,c); return c; }
+    visti.add(r.id);
+    const durata = r.durata_giorni==null ? null : +r.durata_giorni;
+    let inizio = r.data_inizio || null, pred=null, predMancante=false;
+    if(r.dipende_da){
+      pred = byId.get(r.dipende_da);
+      if(!pred || pred.annullato){ predMancante=true; }
+      else {
+        const p=calc(pred,visti);
+        if(p.ciclo){ const c={ciclo:true}; out.set(r.id,c); return c; }
+        if(p.fine) inizio = addGG(p.fine,1);
+      }
+    }
+    const fine = (inizio && durata) ? addGG(inizio, durata-1) : null;
+    const res = {inizio, fine, durata, predMancante,
+      predNome: pred ? (DB.interventi.find(i=>i.id===pred.intervento_id)||{}).nome : null,
+      ritardo: (fine && r.scadenza) ? diffGG(fine, r.scadenza) : null, ciclo:false};
+    out.set(r.id,res); return res;
+  }
+  righe.forEach(r=>calc(r,new Set()));
+  return out;
+}
+// verifica se collegare figlio -> padre crea un anello
+function creaCiclo(righe, figlioId, padreId){
+  const byId=new Map(righe.map(r=>[r.id,r]));
+  let cur=byId.get(padreId), n=0;
+  while(cur && n++<200){
+    if(cur.id===figlioId) return true;
+    cur = cur.dipende_da ? byId.get(cur.dipende_da) : null;
+  }
+  return false;
+}
+// stato di una riga pianificata rispetto alla scadenza e all'avanzamento
+function statoGantt(p, avz, scadenza, oggiStr){
+  if(p.ciclo) return {k:"ciclo", l:"dipendenza circolare", c:"#8E2820"};
+  if(!p.durata) return {k:"nodurata", l:"durata da inserire", c:"#6B7565"};
+  if(avz>=1) return {k:"fatto", l:"completato", c:"#8CBF66"};
+  if(!scadenza) return {k:"noscad", l:"scadenza da inserire", c:"#6B7565"};
+  const disp = diffGG(scadenza, oggiStr);
+  const residua = Math.ceil(p.durata*(1-avz));
+  if(p.inizio && diffGG(scadenza,p.inizio)+1 < p.durata)
+    return {k:"impossibile", l:"non ci sta", c:"#8E2820", disp, residua, scoperto:residua-disp};
+  if(residua > disp) return {k:"tardi", l:"in ritardo", c:"#C0392B", disp, residua, scoperto:residua-disp};
+  if(disp>0 && (disp-residua)/disp < 0.2) return {k:"stretto", l:"margine stretto", c:"#E8A33D", disp, residua};
+  return {k:"ok", l:"in tempo", c:"#1F5C2E", disp, residua};
+}
+
 const budgetEffDi = (si,intv) => intv.tipo==="piante"
   ? (+si.piante_previste||0)*(+si.costo_unitario||0) : (+si.budget||0);
 
@@ -573,17 +655,13 @@ function scadenzeSito(sitoId, D, R){
     const ritImput=rit.filter(r=>!r.forza_maggiore);
     const st=statoScadenza(avvio, si.scadenza, oggi(), p.avz, proroga);
     items.push(Object.assign({nome:intv.nome, categoria:catNome(intv.categoria_id), avz:p.avz,
-      scadenza:si.scadenza, ritardi:rit, ritFM, ritImput}, st));
+      perizia:(DB.perizie.find(x=>x.id===intv.categoria_perizia_id)||{}).nome,
+      lotto:si.lotto||"Intero sito", scadenza:si.scadenza, ritardi:rit, ritFM, ritImput}, st));
   }
   items.sort((a,b)=>(ord[a.stato]-ord[b.stato])||((a.rim??1e9)-(b.rim??1e9)));
   return items;
 }
-function renderScadenze(items, titolo, mostraSito, consentiRevoca){
-  const dIt=iso=>{const[a,m,g]=iso.split("-");return `${g}/${m}/${a}`;};
-  if(!items.length) return `<div class="card"><h2>${titolo}</h2>
-    <p class="muted" style="margin:6px 0">Nessun intervento attivo da mostrare. Qui compariranno gli interventi del Setup: imposta avvio lavori e scadenze per attivare gli avvisi sui tempi.</p></div>`;
-  const allarmi=items.filter(i=>["scaduto","5","10","20"].includes(i.stato)).length;
-  const rows=items.map(i=>{
+function rigaScadenza(i, consentiRevoca){
     const st=STATI[i.stato]||STATI.nd;
     const elapsed=(i.frac!=null)?Math.min(Math.max(1-i.frac,0),1):(i.stato==="scaduto"?1:0);
     const tempo = i.stato==="scaduto"?`scaduto da ${i.ritardoGiorni} gg`
@@ -611,7 +689,7 @@ function renderScadenze(items, titolo, mostraSito, consentiRevoca){
       ritHtml+=`<div class="rit-note">⚠ Ritardo imputabile: ${g} gg${cs?` — ${esc(cs)}`:''}</div>`; }
     return `<div class="scad-row">
       <div class="scad-top">
-        <span class="scad-nome">${esc(i.nome)}${mostraSito&&i.sito?` <span class="muted">· ${esc(i.sito)}</span>`:''}</span>
+        <span class="scad-nome">${esc(i.nome)}${i.sito?` <span class="muted">· ${esc(i.sito)}</span>`:''}${i.lotto&&i.lotto!=="Intero sito"?` <span class="lotto-tag urg">${esc(i.lotto)}</span>`:''}</span>
         <span class="scad-badge" style="background:${st.c}">${st.l}</span></div>
       <div class="scad-meta"><span class="muted">${esc(i.categoria)}</span>
         <span>Avanz. ${Math.round(i.avz*100)}% · scad. ${i.scadenza?dIt(i.scadenza):"—"}${pror}${tempo?" · "+tempo:""}</span></div>
@@ -619,10 +697,65 @@ function renderScadenze(items, titolo, mostraSito, consentiRevoca){
         ${(i.frac!=null||i.stato==="scaduto")?`<span class="scad-today" style="left:${Math.round(elapsed*100)}%"></span>`:''}</div>
       ${scoTxt?`<div class="scad-sco">${scoTxt}</div>`:''}
       ${ritHtml}</div>`;
-  }).join("");
+}
+
+function renderScadenze(items, titolo, mostraSito, consentiRevoca){
+  const dIt=iso=>{const[a,m,g]=iso.split("-");return `${g}/${m}/${a}`;};
+  if(!items.length) return `<div class="card"><h2>${titolo}</h2>
+    <p class="muted" style="margin:6px 0">Nessun intervento attivo da mostrare. Qui compariranno gli interventi del Setup: imposta avvio lavori e scadenze per attivare gli avvisi sui tempi.</p></div>`;
+  const allarmi=items.filter(i=>["scaduto","5","10","20"].includes(i.stato)).length;
+  const rows=items.map(i=>rigaScadenza(i,consentiRevoca)).join("");
   const banner=allarmi?`<div class="banner banner-alert">⏰ ${allarmi} ${allarmi===1?"intervento richiede attenzione sulle scadenze":"interventi richiedono attenzione sulle scadenze"}</div>`:'';
   return `<div class="card"><h2>${titolo}</h2>${banner}${rows}
     <p class="muted" style="font-size:11.5px;margin-top:8px">Barra = avanzamento; segno verticale = "oggi" sulla finestra avvio→scadenza (rettificata con le proroghe). Lo scostamento reale stima la fine al ritmo attuale.</p></div>`;
+}
+
+/* ---- scadenze raggruppate (sito / categoria perizia) ---- */
+let SC_GRUPPO="sito", SC_LOTTO="";
+window.setScad = (k,v) => { if(k==="g") SC_GRUPPO=v; else SC_LOTTO=v; rDash(); };
+
+function renderScadenzeRaggruppate(items, consentiRevoca){
+  let vis = SC_LOTTO ? items.filter(i=>(i.lotto||"Intero sito")===SC_LOTTO) : items;
+  const lotti=[...new Set(items.map(i=>i.lotto||"Intero sito"))].sort();
+  const conScad = vis.filter(i=>i.stato!=="nd");
+  const senza   = vis.filter(i=>i.stato==="nd");
+  const urgenti = conScad.filter(i=>["scaduto","5","10","20"].includes(i.stato));
+  const ordS={scaduto:0,"5":1,"10":2,"20":3,nd_tempo:4,ok:5,completato:6,nd:7};
+  urgenti.sort((a,b)=>(ordS[a.stato]-ordS[b.stato])||((a.rim??1e9)-(b.rim??1e9)));
+  const chiave = i => SC_GRUPPO==="perizia" ? (i.perizia||"non classificato") : (i.sito||"—");
+  const gruppi={};
+  conScad.forEach(i=>(gruppi[chiave(i)]=gruppi[chiave(i)]||[]).push(i));
+  const nAl = g => g.filter(i=>["scaduto","5","10","20"].includes(i.stato)).length;
+  const blocchi=Object.entries(gruppi).sort((a,b)=>nAl(b[1])-nAl(a[1])).map(([k,v])=>{
+    v.sort((a,b)=>(ordS[a.stato]-ordS[b.stato])||((a.rim??1e9)-(b.rim??1e9)));
+    const al=nAl(v), fatti=v.filter(i=>i.stato==="completato").length;
+    return `<details class="sg-sito"${al?" open":""}>
+      <summary><span class="sg-nome">${esc(k)}</span>
+        ${al?`<span class="flag-r">⏰ ${al}</span>`:""}
+        ${fatti?`<span class="flag-y" style="background:#E4F0D8;color:#2E7D32">✓ ${fatti}</span>`:""}
+        <span class="sg-apri">${v.length} voci</span></summary>
+      <div class="sg-body">${v.map(i=>rigaScadenza(i,consentiRevoca)).join("")}</div></details>`;
+  }).join("");
+  const lottiOpt=lotti.map(l=>`<option ${SC_LOTTO===l?"selected":""}>${esc(l)}</option>`).join("");
+  return `<div class="card"><h2>Scadenze portfolio</h2>
+    <div class="row2" style="margin-bottom:10px">
+      <div><label>Raggruppa per</label><select onchange="setScad('g',this.value)">
+        <option value="sito" ${SC_GRUPPO==="sito"?"selected":""}>Sito</option>
+        <option value="perizia" ${SC_GRUPPO==="perizia"?"selected":""}>Categoria perizia</option></select></div>
+      <div><label>Lotto</label><select onchange="setScad('l',this.value)">
+        <option value="">— tutti —</option>${lottiOpt}</select></div></div>
+    ${urgenti.length?`<div class="banner banner-alert">⏰ ${urgenti.length} ${urgenti.length===1?"intervento richiede":"interventi richiedono"} attenzione</div>
+      ${urgenti.map(i=>rigaScadenza(i,consentiRevoca)).join("")}`
+     :`<p class="muted" style="margin-bottom:10px">Nessun intervento in allarme sulle scadenze.</p>`}
+    ${blocchi?`<p class="muted" style="margin:14px 0 8px;font-size:11.5px">Tutte le scadenze, raggruppate. I gruppi con allarmi sono aperti.</p>${blocchi}`:""}
+    ${senza.length?`<details class="sg-sito" style="margin-top:8px"><summary>
+      <span class="sg-nome">⚠️ ${senza.length} interventi senza scadenza</span>
+      <span class="sg-apri">impostala nel Setup</span></summary>
+      <div class="sg-body">${senza.slice(0,60).map(i=>`<div class="sg-row">
+        <span class="sg-n">${esc(i.nome)}</span><span class="sg-t">${esc(i.sito||"")}${
+        i.lotto&&i.lotto!=="Intero sito"?" · "+esc(i.lotto):""}</span></div>`).join("")}
+        ${senza.length>60?`<p class="muted">…e altri ${senza.length-60}.</p>`:""}</div></details>`:""}
+  </div>`;
 }
 
 window.revocaProroga = async (id, val) => {
@@ -709,6 +842,102 @@ async function rSito(){
    </div>`;
 }
 
+/* ====================== GANTT ====================== */
+let GT_GRUPPO="sito", GT_LOTTO="";
+window.setGantt = (k,v) => { if(k==="g") GT_GRUPPO=v; else GT_LOTTO=v; rGantt(); };
+
+async function rGantt(){
+  const siti = isSuper()||isReadOnly() ? DB.siti : DB.siti.filter(x=>x.id===P.sito_id);
+  const dati=[];
+  for(const s of siti){ const D=await datiSito(s.id); dati.push({sito:s,D,R:calcSito(s.id,D)}); }
+  const oggiStr=oggi();
+  // righe con la pianificazione risolta
+  let righe=[];
+  const lotti=new Set();
+  for(const {sito,D,R} of dati){
+    const attive=D.sito_interventi.filter(x=>x.attivo&&!x.annullato);
+    const plan=pianifica(attive);
+    for(const si of attive){
+      const intv=DB.interventi.find(i=>i.id===si.intervento_id)||{};
+      const p=plan.get(si.id)||{};
+      const avz=(R.perInt.find(x=>x.si_id===si.id)||{avz:0}).avz;
+      lotti.add(si.lotto||"Intero sito");
+      righe.push({si,intv,sito,p,avz,lotto:si.lotto||"Intero sito",
+        st:statoGantt(p,avz,si.scadenza,oggiStr)});
+    }
+  }
+  if(GT_LOTTO) righe=righe.filter(r=>r.lotto===GT_LOTTO);
+  const pian = righe.filter(r=>r.p.inizio && r.p.fine && r.si.scadenza);
+  const senza = righe.filter(r=>!(r.p.inizio && r.p.fine && r.si.scadenza));
+  const allarmi = pian.filter(r=>["impossibile","tardi","ciclo"].includes(r.st.k));
+  // finestra temporale: da oggi (o dal primo inizio) alla fine piu' lontana
+  const dts=[oggiStr,...pian.map(r=>r.p.inizio),...pian.map(r=>r.p.fine),...pian.map(r=>r.si.scadenza)].filter(Boolean);
+  const t0 = dts.length?dts.reduce((a,b)=>a<b?a:b):oggiStr;
+  const t1 = dts.length?dts.reduce((a,b)=>a>b?a:b):addGG(oggiStr,30);
+  const span = Math.max(diffGG(t1,t0),1);
+  const pos = iso => Math.min(Math.max(diffGG(iso,t0)/span*100,0),100);
+  const dIt = iso => { const[a,m,g]=iso.split("-"); return `${g}/${m}`; };
+
+  const riga = r => {
+    const st=r.st, x=pos(r.p.inizio), w=Math.max(pos(r.p.fine)-x,1.2);
+    const dep = r.si.dipende_da
+      ? `<div class="gt-dep">↳ dopo «${esc(r.p.predNome||"?")}»${r.p.predMancante?' <span class="flag-y">⚠️ predecessore rimosso</span>':''}</div>` : "";
+    let al="";
+    if(st.k==="impossibile") al=`⚠ Finisce il ${dIt(r.p.fine)}, ${r.p.ritardo} ${r.p.ritardo===1?"giorno":"giorni"} dopo la scadenza`;
+    else if(st.k==="tardi")  al=`⚠ Servono ancora ${st.residua} gg, ne restano ${st.disp} — ${st.scoperto} ${st.scoperto===1?"giorno":"giorni"} di scoperto`;
+    else if(st.k==="stretto")al=`Margine stretto: ${st.residua} gg necessari su ${st.disp} disponibili`;
+    else if(st.k==="ciclo")  al=`⚠ Dipendenza circolare: correggila nel Setup`;
+    return `<div class="gt-row">
+      <div><div class="gt-nome">${esc(r.intv.nome)}</div>
+        <div class="gt-sub">${r.p.durata} gg · ${dIt(r.p.inizio)}→${dIt(r.p.fine)} · ${esc(r.si.priorita||"")}${
+          r.lotto!=="Intero sito"?` · <span class="lotto-tag urg">${esc(r.lotto)}</span>`:""}</div>${dep}</div>
+      <div><div class="gt-track">
+        <div class="gt-bar" style="left:${x}%;width:${w}%;background:${st.c}"></div>
+        <div class="gt-done" style="left:${x}%;width:${(w*r.avz).toFixed(1)}%;background:${st.c}"></div>
+        <span class="gt-pct">${Math.round(r.avz*100)}%</span>
+        <span class="gt-today" style="left:${pos(oggiStr)}%"></span>
+        <span class="gt-dl" style="left:${pos(r.si.scadenza)}%"></span></div>
+        ${al?`<div class="gt-al" style="color:${st.c}">${al}</div>`:""}</div></div>`;
+  };
+  const scala = `<div class="gt-scale"><span>${dIt(t0)}</span><span>${dIt(addGG(t0,Math.round(span/2)))}</span><span>${dIt(t1)}</span></div>`;
+  // raggruppamento
+  const chiave = r => GT_GRUPPO==="perizia"
+    ? ((DB.perizie.find(x=>x.id===r.intv.categoria_perizia_id)||{}).nome||"non classificato")
+    : r.sito.nome;
+  const gruppi={};
+  pian.forEach(r=>(gruppi[chiave(r)]=gruppi[chiave(r)]||[]).push(r));
+  const ordSt={ciclo:0,impossibile:1,tardi:2,stretto:3,ok:4,fatto:5};
+  const blocchi=Object.entries(gruppi)
+    .sort((a,b)=>b[1].filter(r=>["impossibile","tardi","ciclo"].includes(r.st.k)).length
+                -a[1].filter(r=>["impossibile","tardi","ciclo"].includes(r.st.k)).length)
+    .map(([k,v])=>{
+      v.sort((a,b)=>(ordSt[a.st.k]-ordSt[b.st.k])||a.p.inizio.localeCompare(b.p.inizio));
+      const nAl=v.filter(r=>["impossibile","tardi","ciclo"].includes(r.st.k)).length;
+      return `<div class="card"><h2>${esc(k)} ${nAl?`<span class="flag-r">${nAl} in allarme</span>`:""}</h2>
+        <div class="gt-head"><div>Lavorazione</div><div>${dIt(t0)} → ${dIt(t1)}</div></div>
+        ${v.map(riga).join("")}${scala}</div>`;
+    }).join("");
+  const lottiOpt=[...lotti].sort().map(l=>`<option ${GT_LOTTO===l?"selected":""}>${esc(l)}</option>`).join("");
+  $("#pane-gantt").innerHTML=`
+   <div class="card"><h2>📅 Gantt</h2>
+     <div class="row2">
+       <div><label>Raggruppa per</label><select onchange="setGantt('g',this.value)">
+         <option value="sito" ${GT_GRUPPO==="sito"?"selected":""}>Sito</option>
+         <option value="perizia" ${GT_GRUPPO==="perizia"?"selected":""}>Categoria perizia</option></select></div>
+       <div><label>Lotto</label><select onchange="setGantt('l',this.value)">
+         <option value="">— tutti —</option>${lottiOpt}</select></div>
+     </div>
+     <p class="muted">Barra piena = avanzamento. Segno nero = oggi, segno rosso = scadenza. L'allarme confronta i giorni ancora necessari con quelli rimasti.</p></div>
+   ${allarmi.length?`<div class="banner banner-alert">⏰ ${allarmi.length} ${allarmi.length===1?"lavorazione non sta":"lavorazioni non stanno"} nei tempi</div>`:""}
+   ${blocchi||'<div class="card"><p class="muted">Nessuna lavorazione pianificabile: servono durata, data di inizio e scadenza. Impostale nel Setup.</p></div>'}
+   ${senza.length?`<div class="card"><details><summary style="cursor:pointer;font-weight:800;color:var(--forest-d);font-size:14px">
+      ⚠️ ${senza.length} lavorazioni non pianificate — dati mancanti</summary>
+      <p class="muted" style="margin:8px 0">Compaiono qui finché non hanno durata, data di inizio e scadenza.</p>
+      ${senza.slice(0,60).map(r=>`<div class="sg-row"><span class="sg-n">${esc(r.intv.nome)} <span class="muted">· ${esc(r.sito.nome)}</span></span>
+        <span class="sg-t">${[!r.p.durata?"durata":null,!r.p.inizio?"data inizio":null,!r.si.scadenza?"scadenza":null].filter(Boolean).join(", ")}</span></div>`).join("")}
+      ${senza.length>60?`<p class="muted">…e altre ${senza.length-60}.</p>`:""}</details></div>`:""}`;
+}
+
 let chRef=null;
 async function rDash(){
   const all = await calcTutti();
@@ -771,7 +1000,7 @@ async function rDash(){
    <div class="card"><h2>Budget e avanzamento — ${VISTA==="perizia"?"categorie perizia":"categorie di lavorazione"}</h2>
      <div class="scroll-x">${tabBud}</div>
      <p class="muted" style="margin-top:8px">Gli avanzamenti sono pesati sui budget: una voce da 300.000 € conta più di una da 3.000 €.</p></div>
-   ${renderScadenze(scadAll,"Scadenze portfolio (gantt a scadenze)",true,!isReadOnly())}
+   ${renderScadenzeRaggruppate(scadAll,!isReadOnly())}
    <div class="card"><h2>Consolidamento 7 siti</h2><div class="scroll-x">
      <table class="grid"><tr><th>Sito</th><th>Avz.</th><th>Ettari</th><th>Interno</th><th>Conto terzi</th><th>Totale</th><th>Budget</th></tr>${cons}</table>
    </div><p class="muted" style="margin-top:8px">Il totale include ore/macchine/gasolio; il budget è solo materiali e preventivi.</p></div>
@@ -1025,6 +1254,7 @@ const SETUP = {
   let svAll=[];
   if(siIds.length){const r=await sb.from("sottovoci").select("*").in("sito_intervento_id",siIds).order("ordine");svAll=r.data||[];}
   const lotti=[...new Set((siAll||[]).map(x=>x.lotto||"Intero sito"))].sort();
+  const tutte=(siAll||[]).filter(x=>!x.annullato);
   const righe=(siAll||[]).filter(x=>{
     const iv=DB.interventi.find(i=>i.id===x.intervento_id);
     return iv && iv.categoria_id===cat && (!flt || (x.lotto||"Intero sito")===flt);
@@ -1064,6 +1294,20 @@ const SETUP = {
           <div><label>Priorità</label><select class="i-pri">
             ${["Alta","Media","Bassa"].map(p=>`<option ${si.priorita===p?"selected":""}>${p}</option>`).join("")}</select></div>
           <div><label>Scadenza</label><input type="date" class="i-scad" value="${V(si.scadenza)}"></div>
+          <div><label>Durata (giorni)</label><input type="number" min="1" class="i-dur" value="${V(si.durata_giorni)}"></div>
+          <div><label>Inizio previsto</label><input type="date" class="i-ini" value="${V(si.data_inizio)}" ${si.dipende_da?"disabled":""}></div>
+        </div>
+        <div style="margin-top:8px">
+          <label class="chk"><input type="checkbox" class="i-dip-on" ${si.dipende_da?"checked":""}> Dipende da un'altra lavorazione</label>
+          <div class="i-dip-box ${si.dipende_da?"":"hide"}">
+            <select class="i-dip"><option value="">— scegli la lavorazione che deve precedere —</option>
+            ${tutte.filter(x=>x.id!==si.id).map(x=>{
+              const iv=DB.interventi.find(i=>i.id===x.intervento_id)||{};
+              return `<option value="${x.id}" ${si.dipende_da===x.id?"selected":""}>${esc(iv.nome)}${
+                (x.lotto&&x.lotto!=="Intero sito")?" · "+esc(x.lotto):""}</option>`;}).join("")}
+            </select>
+            <p class="muted" style="margin-top:5px;font-size:11.5px">Inizierà il giorno dopo la fine di quella lavorazione. La data di inizio qui sopra viene ignorata.</p>
+          </div>
         </div>
         ${isP?"":`<div style="margin-top:10px">
           <label class="muted">Sotto-voci</label>
@@ -1103,6 +1347,12 @@ const SETUP = {
     if(qt&&cu&&bd){ const calc=()=>{ if(qt.value!==""&&cu.value!=="") bd.value=(+qt.value*+cu.value).toFixed(2); };
       qt.oninput=calc; cu.oninput=calc; }
   });
+  $$(".i-dip-on").forEach(ch=>ch.onchange=()=>{
+    const card=ch.closest(".int-card");
+    card.querySelector(".i-dip-box").classList.toggle("hide",!ch.checked);
+    const ini=card.querySelector(".i-ini"); if(ini) ini.disabled=ch.checked;
+    if(!ch.checked) card.querySelector(".i-dip").value="";
+  });
   function bindDel(){$$(".sv-del").forEach(x=>x.onclick=()=>x.closest(".sv-row").remove());}
   $$(".sv-add").forEach(b=>b.onclick=()=>{b.previousElementSibling.insertAdjacentHTML("beforeend",svRow("",""));bindDel();});
   bindDel();
@@ -1133,7 +1383,15 @@ const SETUP = {
       const g=c=>card.querySelector(c);
       const rec={attivo:g(".i-attivo").checked, lotto:g(".i-lot").value.trim()||"Intero sito",
         modalita:g(".i-mod").value, unita_misura:g(".i-um").value.trim()||null,
-        quantita:N(g(".i-qt")), priorita:g(".i-pri").value, scadenza:g(".i-scad").value||null};
+        quantita:N(g(".i-qt")), priorita:g(".i-pri").value, scadenza:g(".i-scad").value||null,
+        durata_giorni:N(g(".i-dur")), data_inizio:g(".i-ini").value||null,
+        dipende_da: g(".i-dip-on").checked ? (+g(".i-dip").value||null) : null};
+      if(rec.dipende_da){
+        const prova=tutte.map(x=>x.id===id?{...x,dipende_da:rec.dipende_da}:x);
+        if(creaCiclo(prova,id,rec.dipende_da)){
+          toast("Dipendenza circolare su "+intv.nome+": non salvata"); rec.dipende_da=null;
+        } else rec.data_inizio=null;
+      }
       if(intv.tipo==="piante"){ rec.piante_previste=N(g(".i-pp")); rec.costo_unitario=N(g(".i-cu")); }
       else { rec.costo_unitario_voce=N(g(".i-cuv")); rec.budget=N(g(".i-bud")); }
       const {error}=await sb.from("sito_interventi").update(rec).eq("id",id);
