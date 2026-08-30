@@ -208,6 +208,30 @@ table.grid td:first-child{text-align:left;font-weight:600}
 .lotto-tag{font-size:10px;font-weight:800;background:#E3E7DD;color:var(--forest-d);padding:2px 7px;
   border-radius:10px;text-transform:uppercase;letter-spacing:.03em}
 .lotto-tag.urg{background:#C0392B;color:#fff}
+.sg-tot{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.sg-tot span{background:#EEF1EA;border-radius:8px;padding:6px 10px;font-size:12px;color:var(--mut)}
+.sg-tot b{color:var(--forest);font-size:14px}
+.sg-sito{border:1px solid var(--line);border-radius:var(--r-s);margin-bottom:8px;background:var(--white)}
+.sg-sito summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;
+  padding:11px 12px;font-weight:800;font-size:14px;color:var(--forest-d)}
+.sg-sito summary::-webkit-details-marker{display:none}
+.sg-sito summary::before{content:"▸";color:var(--moss);font-size:14px;transition:transform .15s}
+.sg-sito[open] summary::before{content:"▾"}
+.sg-sito[open] summary{border-bottom:1px solid var(--line)}
+.sg-nome{flex:1}
+.sg-apri{font-size:10px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+.sg-body{padding:4px 12px 10px}
+.sg-sub{margin-top:4px}
+.sg-sub summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:6px;padding:7px 0}
+.sg-sub summary::-webkit-details-marker{display:none}
+.sg-sub summary::before{content:"▸";color:var(--gold);font-size:12px}
+.sg-sub[open] summary::before{content:"▾"}
+.sg-tit{font-size:10.5px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:9px 0 3px}
+.sg-row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid #F0F2EC;font-size:12.5px}
+.sg-row:last-child{border-bottom:none}
+.sg-n{font-weight:600;color:var(--ink)}
+.sg-t{color:var(--mut);text-align:right;flex-shrink:0;max-width:52%}
+@media(max-width:620px){.sg-row{flex-direction:column;gap:2px}.sg-t{text-align:left;max-width:100%}}
 @media(min-width:700px){.fascia{font-size:14px}.dyn-row{gap:10px}}
 </style>
 </head>
@@ -608,25 +632,40 @@ window.revocaProroga = async (id, val) => {
   rDash();
 };
 function segnalazioni(all){
-  const rows=[];
+  const perSito=[];
+  let totR=0, totY=0;
   for(const {sito,R} of all){
-    if(R.ettariMancanti) rows.push({t:"y",sito:sito.nome,nome:"Ettari del sito",txt:"ettari totali non inseriti"});
+    const rosse=[], gialle=[];
+    if(R.ettariMancanti) gialle.push({nome:"Ettari del sito",txt:"ettari totali non inseriti"});
     for(const p of R.perInt){
-      if(p.daVerificare) rows.push({t:"r",sito:sito.nome,nome:p.nome,lotto:p.lotto,txt:p.nota||"cifre da verificare"});
-      if(p.mancanti.length) rows.push({t:"y",sito:sito.nome,nome:p.nome,lotto:p.lotto,txt:"da inserire: "+p.mancanti.join(", ")});
+      if(p.daVerificare) rosse.push({nome:p.nome,lotto:p.lotto,txt:p.nota||"cifre da verificare"});
+      if(p.mancanti.length) gialle.push({nome:p.nome,lotto:p.lotto,txt:p.mancanti.join(", ")});
     }
+    totR+=rosse.length; totY+=gialle.length;
+    if(rosse.length||gialle.length) perSito.push({nome:sito.nome,rosse,gialle});
   }
-  const r=rows.filter(x=>x.t==="r"), y=rows.filter(x=>x.t==="y");
-  if(!r.length && !y.length) return `<div class="card"><h2>Dati da verificare</h2>
+  if(!perSito.length) return `<div class="card"><h2>Dati da verificare</h2>
     <p class="muted">Nessuna segnalazione: tutti i dati del setup sono compilati e nessuna cifra è in dubbio.</p></div>`;
-  const riga=x=>`<div class="att-row"><div class="t"><span>${x.t==="r"?"🚩":"⚠️"} ${esc(x.nome)}</span>
-    <span class="muted" style="font-weight:400">${esc(x.sito)}${x.lotto&&x.lotto!=="Intero sito"?" · "+esc(x.lotto):""}</span></div>
-    <div class="s"><span>${esc(x.txt)}</span></div></div>`;
+  // i siti con bandierine rosse vengono prima
+  perSito.sort((a,b)=>(b.rosse.length-a.rosse.length)||(b.gialle.length-a.gialle.length));
+  const voce=(x,t)=>`<div class="sg-row"><span class="sg-n">${t==="r"?"🚩":"⚠️"} ${esc(x.nome)}${
+      x.lotto&&x.lotto!=="Intero sito"?` <span class="lotto-tag urg">${esc(x.lotto)}</span>`:""}</span>
+    <span class="sg-t">${esc(x.txt)}</span></div>`;
+  const blocchi=perSito.map(s=>`<details class="sg-sito"${s.rosse.length?" open":""}>
+    <summary><span class="sg-nome">${esc(s.nome)}</span>
+      ${s.rosse.length?`<span class="flag-r">🚩 ${s.rosse.length}</span>`:""}
+      ${s.gialle.length?`<span class="flag-y">⚠️ ${s.gialle.length}</span>`:""}
+      <span class="sg-apri">apri / chiudi</span></summary>
+    <div class="sg-body">
+      ${s.rosse.length?`<div class="sg-tit">Cifre da verificare</div>${s.rosse.map(x=>voce(x,"r")).join("")}`:""}
+      ${s.gialle.length?`<details class="sg-sub"><summary><span class="sg-tit" style="margin:0">Dati da inserire nel Setup — ${s.gialle.length}</span></summary>
+        <div>${s.gialle.map(x=>voce(x,"y")).join("")}</div></details>`:""}
+    </div></details>`).join("");
   return `<div class="card"><h2>Dati da verificare</h2>
-    ${r.length?`<div class="banner banner-alert">🚩 ${r.length} ${r.length===1?"cifra non torna":"cifre non tornano"} tra le fonti</div>${r.map(riga).join("")}`:""}
-    ${y.length?`<div class="banner">⚠️ ${y.length} ${y.length===1?"voce ha":"voci hanno"} dati ancora da inserire nel Setup</div>${y.slice(0,40).map(riga).join("")}
-      ${y.length>40?`<p class="muted">…e altre ${y.length-40}. Completale dal Setup.</p>`:""}`:""}
-  </div>`;
+    <div class="sg-tot"><span><b>${totR}</b> cifre da verificare</span><span><b>${totY}</b> voci da completare</span>
+      <span><b>${perSito.length}</b> siti coinvolti</span></div>
+    <p class="muted" style="margin:2px 0 10px">I siti con cifre in dubbio sono aperti; gli altri si aprono con un tocco.</p>
+    ${blocchi}</div>`;
 }
 async function calcTutti(){
   const out=[];
