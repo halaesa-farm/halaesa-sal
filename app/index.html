@@ -198,6 +198,8 @@ table.grid td:first-child{text-align:left;font-weight:600}
   padding:2px 7px;border-radius:10px;margin-left:6px;white-space:nowrap}
 .int-card.has-r{border-left:4px solid #C0392B}
 .int-card.has-y{border-left:4px solid #E8A33D}
+.int-card.appena{box-shadow:0 0 0 3px var(--moss);animation:pulse 1.6s ease-out 2}
+@keyframes pulse{0%{box-shadow:0 0 0 3px var(--moss)}50%{box-shadow:0 0 0 7px rgba(111,168,74,.35)}100%{box-shadow:0 0 0 3px var(--moss)}}
 .int-card.annull{opacity:.5}
 .int-card.annull .int-head b{text-decoration:line-through}
 .miss{font-size:11.5px;color:#9A6B1F;margin-top:6px}
@@ -323,7 +325,7 @@ async function start(){
   if(!prof){err("#login-err","Utente senza profilo: contattare la direzione.");await sb.auth.signOut();return}
   P = prof;
   // anagrafiche + lista master della gerarchia (categorie/interventi)
-  const [si,ca,inv,op,ma,pa,cr,pz] = await Promise.all([
+  const [si,ca,inv,op,ma,pa,cr,pz,lo] = await Promise.all([
     sb.from("siti").select("*").order("id"),
     sb.from("categorie").select("*").order("ordine"),
     sb.from("interventi").select("*").order("ordine"),
@@ -332,9 +334,10 @@ async function start(){
     sb.from("parametri").select("*"),
     sb.from("causali_ritardo").select("*").order("ordine"),
     sb.from("categorie_perizia").select("*").order("ordine"),
+    sb.from("lotti").select("*").order("ordine"),
   ]);
   DB = {siti:si.data||[], categorie:ca.data||[], interventi:inv.data||[],
-        operai:op.data||[], macchine:ma.data||[], causali:cr.data||[], perizie:pz.data||[],
+        operai:op.data||[], macchine:ma.data||[], causali:cr.data||[], perizie:pz.data||[], lotti:lo.data||[],
         par:Object.fromEntries((pa.data||[]).map(p=>[p.chiave,+p.valore]))};
   $("#v-login").classList.add("hide");$("#v-app").classList.remove("hide");
   $("#who-nome").textContent = P.nome;
@@ -403,9 +406,9 @@ function mancanti(si, intv){
   } else {
     if(VUOTO(si.budget)) m.push("budget");
     if(VUOTO(si.costo_unitario_voce)) m.push("costo unitario");
+    if(VUOTO(si.unita_misura)) m.push("unità di misura");
+    if(VUOTO(si.quantita))     m.push("quantità");
   }
-  if(VUOTO(si.unita_misura)) m.push("unità di misura");
-  if(VUOTO(si.quantita))     m.push("quantità");
   if(VUOTO(si.durata_giorni))m.push("durata");
   if(VUOTO(si.data_inizio) && !si.dipende_da) m.push("data inizio");
   if(si.modalita==="da_definire") m.push("modalità");
@@ -1215,6 +1218,7 @@ function svRow(id,nome){
     <button class="x sv-del">×</button></div>`;
 }
 
+let CAT_SEL=null, LOTTO_SEL=null, NUOVA_RIGA=null;
 const SETUP = {
  /* ---- Siti e parametri ---- */
  async siti(){
@@ -1248,13 +1252,14 @@ const SETUP = {
  /* ---- Interventi e sotto-voci (cuore della gerarchia) ---- */
  async interventi(){
   const sid=+($("#i-sito")?.value||DB.siti[0].id);
-  const cat=+($("#i-cat")?.value||DB.categorie[0].id);
-  const flt=$("#i-lotto")?.value||"";
+  const cat=CAT_SEL ?? +($("#i-cat")?.value||DB.categorie[0].id);
+  const flt=LOTTO_SEL ?? ($("#i-lotto")?.value||"");
+  CAT_SEL=null; LOTTO_SEL=null;
   const {data:siAll}=await sb.from("sito_interventi").select("*").eq("sito_id",sid);
   const siIds=(siAll||[]).map(x=>x.id);
   let svAll=[];
   if(siIds.length){const r=await sb.from("sottovoci").select("*").in("sito_intervento_id",siIds).order("ordine");svAll=r.data||[];}
-  const lotti=[...new Set((siAll||[]).map(x=>x.lotto||"Intero sito"))].sort();
+  const lotti=DB.lotti.map(l=>l.nome);
   const tutte=(siAll||[]).filter(x=>!x.annullato);
   const righe=(siAll||[]).filter(x=>{
     const iv=DB.interventi.find(i=>i.id===x.intervento_id);
@@ -1267,7 +1272,7 @@ const SETUP = {
     const miss=mancanti(si,intv);
     const svs=svAll.filter(x=>x.sito_intervento_id===si.id);
     const lot=si.lotto||"Intero sito";
-    const cls=[ann?"annull":"", si.da_verificare?"has-r":(miss.length?"has-y":"")].join(" ");
+    const cls=[ann?"annull":"", si.da_verificare?"has-r":(miss.length?"has-y":""), si.id===NUOVA_RIGA?"appena":""].join(" ");
     return `<div class="card int-card ${cls}" data-si="${si.id}" data-int="${intv.id}" style="padding:12px">
       <label class="int-head"><input type="checkbox" class="i-attivo" ${attivo?"checked":""} ${ann?"disabled":""}>
         <b>${esc(intv.nome)}</b>
@@ -1280,17 +1285,18 @@ const SETUP = {
       ${(!ann&&miss.length)?`<p class="miss">Da inserire: <b>${miss.join(", ")}</b></p>`:''}
       <div class="i-body ${attivo&&!ann?"":"hide"}">
         <div class="row2" style="margin-top:8px">
-          <div><label>Lotto / perimetro</label><input class="i-lot" value="${esc(lot)}"></div>
+          <div><label>Lotto / perimetro</label><select class="i-lot">
+            ${DB.lotti.map(l=>`<option ${lot===l.nome?"selected":""}>${esc(l.nome)}</option>`).join("")}</select></div>
           <div><label>Modalità</label><select class="i-mod">
             <option value="da_definire" ${si.modalita==="da_definire"?"selected":""}>— da definire —</option>
             <option value="in_house" ${si.modalita==="in_house"?"selected":""}>In house</option>
             <option value="conto_terzi" ${si.modalita==="conto_terzi"?"selected":""}>Conto terzi (terzista)</option></select></div>
-          <div><label>Unità di misura</label><input class="i-um" value="${esc(V(si.unita_misura))}" placeholder="ha, ml, mq, cad…"></div>
-          <div><label>Quantità</label><input type="number" step="0.01" class="i-qt" value="${V(si.quantita)}"></div>
           ${isP
             ? `<div><label>Piante previste</label><input type="number" class="i-pp" value="${V(si.piante_previste)}"></div>
-               <div><label>Costo €/pianta</label><input type="number" step="0.01" class="i-cu" value="${V(si.costo_unitario)}"></div>`
-            : `<div><label>Costo unitario €</label><input type="number" step="0.01" class="i-cuv" value="${V(si.costo_unitario_voce)}"></div>
+               <div><label>Costo € per pianta</label><input type="number" step="0.01" class="i-cu" value="${V(si.costo_unitario)}"></div>`
+            : `<div><label>Unità di misura</label><input class="i-um" value="${esc(V(si.unita_misura))}" placeholder="ha, ml, mq, cad…"></div>
+               <div><label>Quantità</label><input type="number" step="0.01" class="i-qt" value="${V(si.quantita)}"></div>
+               <div><label>Costo unitario €</label><input type="number" step="0.01" class="i-cuv" value="${V(si.costo_unitario_voce)}"></div>
                <div><label>Budget €</label><input type="number" step="0.01" class="i-bud" value="${V(si.budget)}"></div>`}
           <div><label>Priorità</label><select class="i-pri">
             ${["Alta","Media","Bassa"].map(p=>`<option ${si.priorita===p?"selected":""}>${p}</option>`).join("")}</select></div>
@@ -1298,6 +1304,9 @@ const SETUP = {
           <div><label>Durata (giorni)</label><input type="number" min="1" class="i-dur" value="${V(si.durata_giorni)}"></div>
           <div><label>Inizio previsto</label><input type="date" class="i-ini" value="${V(si.data_inizio)}" ${si.dipende_da?"disabled":""}></div>
         </div>
+        ${isP?`<p class="muted" style="margin-top:6px;font-size:11.5px">Si misura in piante: unità di misura e quantità sono implicite. Budget = piante × costo per pianta = <b>${eur((+si.piante_previste||0)*(+si.costo_unitario||0))}</b></p>`:""}
+        <div style="margin-top:10px"><label>Note</label>
+          <textarea class="i-note" rows="2" placeholder="annotazioni libere su questa lavorazione">${esc(V(si.note))}</textarea></div>
         <div style="margin-top:8px">
           <label class="chk"><input type="checkbox" class="i-dip-on" ${si.dipende_da?"checked":""}> Dipende da un'altra lavorazione</label>
           <div class="i-dip-box ${si.dipende_da?"":"hide"}">
@@ -1331,12 +1340,24 @@ const SETUP = {
     </div>
     <p class="muted">🚩 = cifre da verificare · ⚠️ = dati ancora da inserire. Il cartello giallo sparisce quando tutti i campi sono compilati (anche con 0) oppure la lavorazione è cancellata.</p></div>
     ${cards||'<div class="card"><p class="muted">Nessun intervento attivato in questa categoria per questo sito.</p></div>'}
-    <div class="card"><h2>Aggiungi lavorazione</h2>
+    <div class="card"><h2>Aggiungi lavorazione a questo sito</h2>
       <div class="row2">
         <div><label>Intervento</label><select id="add-int">${addOpts}</select></div>
-        <div><label>Lotto</label><input id="add-lot" value="Intero sito"></div>
+        <div><label>Lotto</label><select id="add-lot">${DB.lotti.map(l=>`<option>${esc(l.nome)}</option>`).join("")}</select></div>
       </div>
-      <button class="btn btn-g btn-sm" id="add-go" style="margin-top:10px">+ Aggiungi al sito</button></div>
+      <button class="btn btn-g btn-sm" id="add-go" style="margin-top:10px">+ Aggiungi al sito</button>
+      <p class="muted" style="margin-top:8px">Sceglie tra le lavorazioni già in anagrafica. Compare qui sotto con i campi da compilare.</p></div>
+    <div class="card"><h2>Crea una lavorazione nuova in anagrafica</h2>
+      <p class="muted">Se non esiste nell'elenco. Una volta creata è disponibile per tutti i siti.</p>
+      <div class="row2" style="margin-top:8px">
+        <div><label>Nome</label><input id="new-nome" placeholder="es. Acquisto piante"></div>
+        <div><label>Categoria</label><select id="new-cat">${DB.categorie.map(c=>`<option value="${c.id}" ${c.id===cat?"selected":""}>${esc(c.nome)}</option>`).join("")}</select></div>
+        <div><label>Categoria perizia</label><select id="new-pz">${DB.perizie.map(p=>`<option value="${p.id}">${esc(p.nome)}</option>`).join("")}</select></div>
+        <div><label>Si misura</label><select id="new-tipo">
+          <option value="fasce">a fasce (25/50/75/100)</option>
+          <option value="piante">a numero di piante</option></select></div>
+      </div>
+      <button class="btn btn-o btn-sm" id="new-go" style="margin-top:10px">+ Crea e aggiungi al sito</button></div>
     <button class="btn btn-p" id="i-save">Salva categoria</button>`;
   $("#i-sito").onchange=()=>SETUP.interventi();
   $("#i-cat").onchange=()=>SETUP.interventi();
@@ -1370,11 +1391,41 @@ const SETUP = {
     const {error}=await sb.from("sito_interventi").update({da_verificare:false}).eq("id",id);
     if(error) return toast("Errore"); toast("Segnalazione risolta ✓"); SETUP.interventi();
   });
-  $("#add-go").onclick=async()=>{
-    const rec={sito_id:sid,intervento_id:+$("#add-int").value,lotto:$("#add-lot").value.trim()||"Intero sito",attivo:true};
-    const {error}=await sb.from("sito_interventi").insert(rec);
-    if(error) return toast(error.code==="23505"?"Già presente su questo lotto":"Errore");
-    toast("Lavorazione aggiunta ✓"); SETUP.interventi();
+  async function aggiungiAlSito(intId, lotto){
+    const {data,error}=await sb.from("sito_interventi")
+      .insert({sito_id:sid,intervento_id:intId,lotto,attivo:true}).select().single();
+    if(error){
+      toast(error.code==="23505"
+        ? "Questa lavorazione esiste già su «"+lotto+"»: cambia lotto"
+        : "Errore nell'aggiunta");
+      return null;
+    }
+    // porto la vista sulla riga appena creata, altrimenti resta nascosta dai filtri
+    const iv=DB.interventi.find(i=>i.id===intId);
+    if(iv) CAT_SEL=iv.categoria_id;
+    LOTTO_SEL=lotto; NUOVA_RIGA=data.id;
+    toast("Lavorazione aggiunta ✓");
+    await SETUP.interventi();
+    const el=document.querySelector(`.int-card[data-si="${data.id}"]`);
+    if(el){ el.scrollIntoView({behavior:"smooth",block:"center"}); el.classList.add("appena"); }
+    return data.id;
+  }
+  $("#add-go").onclick=()=>aggiungiAlSito(+$("#add-int").value, $("#add-lot").value);
+  $("#new-go").onclick=async()=>{
+    const nome=$("#new-nome").value.trim();
+    if(!nome) return toast("Indica il nome della lavorazione");
+    if(DB.interventi.some(i=>i.nome.toLowerCase()===nome.toLowerCase()))
+      return toast("Esiste già una lavorazione con questo nome");
+    const {data,error}=await sb.from("interventi").insert({
+      categoria_id:+$("#new-cat").value, categoria_perizia_id:+$("#new-pz").value,
+      nome, modalita:"da_definire", tipo:$("#new-tipo").value,
+      ordine:(DB.interventi.reduce((m,i)=>Math.max(m,i.ordine||0),0)+1)}).select().single();
+    if(error) return toast("Errore nella creazione");
+    // l'anagrafica in memoria si aggiorna subito: la voce compare ovunque
+    DB.interventi.push(data);
+    DB.interventi.sort((a,b)=>(a.categoria_id-b.categoria_id)||(a.ordine-b.ordine));
+    toast("«"+nome+"» aggiunta all'anagrafica ✓");
+    await aggiungiAlSito(data.id, $("#add-lot")?.value || DB.lotti[0].nome);
   };
   $("#i-save").onclick=async()=>{
     const N=el=>{ if(!el) return null; return el.value===""?null:+el.value; };
@@ -1382,10 +1433,10 @@ const SETUP = {
       if(card.classList.contains("annull")) continue;
       const id=+card.dataset.si, intv=DB.interventi.find(i=>i.id===+card.dataset.int);
       const g=c=>card.querySelector(c);
-      const rec={attivo:g(".i-attivo").checked, lotto:g(".i-lot").value.trim()||"Intero sito",
-        modalita:g(".i-mod").value, unita_misura:g(".i-um").value.trim()||null,
-        quantita:N(g(".i-qt")), priorita:g(".i-pri").value, scadenza:g(".i-scad").value||null,
+      const rec={attivo:g(".i-attivo").checked, lotto:g(".i-lot").value,
+        modalita:g(".i-mod").value, priorita:g(".i-pri").value, scadenza:g(".i-scad").value||null,
         durata_giorni:N(g(".i-dur")), data_inizio:g(".i-ini").value||null,
+        note:g(".i-note").value.trim()||null,
         dipende_da: g(".i-dip-on").checked ? (+g(".i-dip").value||null) : null};
       if(rec.dipende_da){
         const prova=tutte.map(x=>x.id===id?{...x,dipende_da:rec.dipende_da}:x);
@@ -1393,8 +1444,13 @@ const SETUP = {
           toast("Dipendenza circolare su "+intv.nome+": non salvata"); rec.dipende_da=null;
         } else rec.data_inizio=null;
       }
-      if(intv.tipo==="piante"){ rec.piante_previste=N(g(".i-pp")); rec.costo_unitario=N(g(".i-cu")); }
-      else { rec.costo_unitario_voce=N(g(".i-cuv")); rec.budget=N(g(".i-bud")); }
+      if(intv.tipo==="piante"){
+        rec.piante_previste=N(g(".i-pp")); rec.costo_unitario=N(g(".i-cu"));
+        rec.unita_misura="pianta"; rec.quantita=rec.piante_previste; rec.budget=null;
+      } else {
+        rec.unita_misura=g(".i-um").value.trim()||null; rec.quantita=N(g(".i-qt"));
+        rec.costo_unitario_voce=N(g(".i-cuv")); rec.budget=N(g(".i-bud"));
+      }
       const {error}=await sb.from("sito_interventi").update(rec).eq("id",id);
       if(error){ toast("Errore su "+intv.nome); continue; }
       if(intv.tipo!=="piante"){
