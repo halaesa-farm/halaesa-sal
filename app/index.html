@@ -325,7 +325,7 @@ async function start(){
   if(!prof){err("#login-err","Utente senza profilo: contattare la direzione.");await sb.auth.signOut();return}
   P = prof;
   // anagrafiche + lista master della gerarchia (categorie/interventi)
-  const [si,ca,inv,op,ma,pa,cr,pz,lo] = await Promise.all([
+  const [si,ca,inv,op,ma,pa,cr,pz,lo,co] = await Promise.all([
     sb.from("siti").select("*").order("id"),
     sb.from("categorie").select("*").order("ordine"),
     sb.from("interventi").select("*").order("ordine"),
@@ -335,9 +335,10 @@ async function start(){
     sb.from("causali_ritardo").select("*").order("ordine"),
     sb.from("categorie_perizia").select("*").order("ordine"),
     sb.from("lotti").select("*").order("ordine"),
+    sb.from("comuni").select("*").order("ordine"),
   ]);
   DB = {siti:si.data||[], categorie:ca.data||[], interventi:inv.data||[],
-        operai:op.data||[], macchine:ma.data||[], causali:cr.data||[], perizie:pz.data||[], lotti:lo.data||[],
+        operai:op.data||[], macchine:ma.data||[], causali:cr.data||[], perizie:pz.data||[], lotti:lo.data||[], comuni:co.data||[],
         par:Object.fromEntries((pa.data||[]).map(p=>[p.chiave,+p.valore]))};
   $("#v-login").classList.add("hide");$("#v-app").classList.remove("hide");
   $("#who-nome").textContent = P.nome;
@@ -605,6 +606,14 @@ function stubPane(pane,titolo,blocco){
     Per ora è disponibile il <b>Setup</b>, dove si definisce la struttura di ogni sito.</p></div>`;
 }
 /* ====================== VISTE & DASHBOARD (Blocco 5) ====================== */
+// macchine del comune del sito; se il sito non ha comune, tutte
+function macchinePerSito(sitoId){
+  const cs=(DB.siti.find(x=>x.id===sitoId)||{}).comune_id;
+  if(!cs) return DB.macchine;
+  return DB.macchine.filter(m=>m.comune_id===cs);
+}
+const nomeSito = s => (s && (s.nome_breve || s.nome)) || "—";
+const nomeSitoId = id => nomeSito(DB.siti.find(x=>x.id===id));
 const catNome = id => (DB.categorie.find(x=>x.id===id)||{}).nome || "?";
 const pzNome  = id => (DB.perizie.find(x=>x.id===id)||{}).nome || "non classificato";
 let VISTA = "categorie";   // "categorie" | "perizia"
@@ -779,7 +788,7 @@ function segnalazioni(all){
       if(p.mancanti.length) gialle.push({nome:p.nome,lotto:p.lotto,txt:p.mancanti.join(", ")});
     }
     totR+=rosse.length; totY+=gialle.length;
-    if(rosse.length||gialle.length) perSito.push({nome:sito.nome,rosse,gialle});
+    if(rosse.length||gialle.length) perSito.push({nome:nomeSito(sito),rosse,gialle});
   }
   if(!perSito.length) return `<div class="card"><h2>Dati da verificare</h2>
     <p class="muted">Nessuna segnalazione: tutti i dati del setup sono compilati e nessuna cifra è in dubbio.</p></div>`;
@@ -907,7 +916,7 @@ async function rGantt(){
   // raggruppamento
   const chiave = r => GT_GRUPPO==="perizia"
     ? ((DB.perizie.find(x=>x.id===r.intv.categoria_perizia_id)||{}).nome||"non classificato")
-    : r.sito.nome;
+    : nomeSito(r.sito);
   const gruppi={};
   pian.forEach(r=>(gruppi[chiave(r)]=gruppi[chiave(r)]||[]).push(r));
   const ordSt={ciclo:0,impossibile:1,tardi:2,stretto:3,ok:4,fatto:5};
@@ -937,7 +946,7 @@ async function rGantt(){
    ${senza.length?`<div class="card"><details><summary style="cursor:pointer;font-weight:800;color:var(--forest-d);font-size:14px">
       ⚠️ ${senza.length} lavorazioni non pianificate — dati mancanti</summary>
       <p class="muted" style="margin:8px 0">Compaiono qui finché non hanno durata, data di inizio e scadenza.</p>
-      ${senza.slice(0,60).map(r=>`<div class="sg-row"><span class="sg-n">${esc(r.intv.nome)} <span class="muted">· ${esc(r.sito.nome)}</span></span>
+      ${senza.slice(0,60).map(r=>`<div class="sg-row"><span class="sg-n">${esc(r.intv.nome)} <span class="muted">· ${esc(nomeSito(r.sito))}</span></span>
         <span class="sg-t">${[!r.p.durata?"durata":null,!r.p.inizio?"data inizio":null,!r.si.scadenza?"scadenza":null].filter(Boolean).join(", ")}</span></div>`).join("")}
       ${senza.length>60?`<p class="muted">…e altre ${senza.length-60}.</p>`:""}</details></div>`:""}`;
 }
@@ -947,12 +956,12 @@ async function rDash(){
   const all = await calcTutti();
   let T={totale:0,interno:0,terzisti:0,ettari:0,budget:0,fermo:0,ettariTot:0};
   let scadAll=[];
-  for(const {sito,D,R} of all){ scadenzeSito(sito.id,D,R).forEach(i=>scadAll.push(Object.assign({sito:sito.nome},i))); }
+  for(const {sito,D,R} of all){ scadenzeSito(sito.id,D,R).forEach(i=>scadAll.push(Object.assign({sito:nomeSito(sito)},i))); }
   const ordS={scaduto:0,'5':1,'10':2,'20':3,nd_tempo:4,ok:5,completato:6,nd:7};
   scadAll.sort((a,b)=>(ordS[a.stato]-ordS[b.stato])||((a.rim??1e9)-(b.rim??1e9)));
   for(const {sito,R} of all){const c=R.costi;T.totale+=c.totale;T.interno+=c.interno;T.terzisti+=c.terzisti;T.ettari+=R.ettari;T.budget+=c.budgetTot;T.fermo+=R.gg_fermo;T.ettariTot+=(+sito.ettari_totali||0);}
   // consolidamento
-  const cons = all.map(({sito,R})=>`<tr><td>${esc(sito.nome)}</td>
+  const cons = all.map(({sito,R})=>`<tr><td>${esc(nomeSito(sito))}</td>
     <td>${Math.round(R.avz*100)}%</td><td>${R.ettari.toLocaleString("it-IT",{maximumFractionDigits:1})}</td>
     <td>${eur(R.costi.interno)}</td><td>${eur(R.costi.terzisti)}</td>
     <td title="materiali interni e preventivi maturati">${eur(R.costi.totale)}</td><td>${eur(R.costi.budgetTot)}</td></tr>`).join("");
@@ -967,7 +976,7 @@ async function rDash(){
     const v=Math.round(f*100); const bg=f>=0.75?"#1F5C2E":f>=0.5?"#4E8A3A":f>=0.25?"#8CBF66":f>0?"#CFE3B4":"#EEE";
     const col=f>=0.5?"#fff":"#1A2418"; return `<td style="background:${bg};color:${col};text-align:center;font-weight:700">${v}%</td>`;};
   const heat = `<table class="grid"><tr><th>Sito</th>${catCols.map(c=>`<th title="${esc(c.nome)}" style="text-align:center">${esc(c.nome.slice(0,9))}</th>`).join("")}</tr>
-    ${all.map(({sito})=>`<tr><td>${esc(sito.nome)}</td>${catCols.map(c=>heatCell(catAvz[sito.id][c.id])).join("")}</tr>`).join("")}</table>`;
+    ${all.map(({sito})=>`<tr><td>${esc(nomeSito(sito))}</td>${catCols.map(c=>heatCell(catAvz[sito.id][c.id])).join("")}</tr>`).join("")}</table>`;
   // budget per colonna della vista
   const budCol = catCols.map(c=>({nome:c.nome, budget:all.reduce((s2,{sito})=>s2+(catBud[sito.id][c.id]||0),0),
     avz:(()=>{let b=0,bs=0;all.forEach(({sito,R})=>{const v=vistaPer(R).find(x=>x.id===c.id);if(v){b+=v.budget;bs+=v.budget*v.avz;}});return b>0?bs/b:0;})()}));
@@ -977,7 +986,7 @@ async function rDash(){
       <td>${budTotAll?Math.round(x.budget/budTotAll*100):0}%</td><td>${Math.round(x.avz*100)}%</td></tr>`).join("")}
     <tr><td><b>TOTALE</b></td><td><b>${eur(budTotAll)}</b></td><td><b>100%</b></td><td></td></tr></table>`;
   // EFFICIENZA (indicatori onesti nel nuovo modello)
-  const eff=all.map(({sito,R})=>({nome:sito.nome,avz:R.avz,eurHa:R.ettari>0?R.costi.totale/R.ettari:null,fermo:R.gg_fermo}));
+  const eff=all.map(({sito,R})=>({nome:nomeSito(sito),avz:R.avz,eurHa:R.ettari>0?R.costi.totale/R.ettari:null,fermo:R.gg_fermo}));
   const haV=eff.map(e=>e.eurHa).filter(v=>v!=null); const haMin=Math.min(...haV,0),haMax=Math.max(...haV,1);
   const fMax=Math.max(1,...eff.map(e=>e.fermo));
   const C={ott:"#1F5C2E",buono:"#8CBF66",att:"#E8A33D",crit:"#C0392B"};
@@ -1005,7 +1014,7 @@ async function rDash(){
      <div class="scroll-x">${tabBud}</div>
      <p class="muted" style="margin-top:8px">Gli avanzamenti sono pesati sui budget: una voce da 300.000 € conta più di una da 3.000 €.</p></div>
    ${renderScadenzeRaggruppate(scadAll,!isReadOnly())}
-   <div class="card"><h2>Consolidamento 7 siti</h2><div class="scroll-x">
+   <div class="card"><h2>Consolidamento ${DB.siti.length} siti</h2><div class="scroll-x">
      <table class="grid"><tr><th>Sito</th><th>Avz.</th><th>Ettari</th><th>Interno</th><th>Conto terzi</th><th>Totale</th><th>Budget</th></tr>${cons}</table>
    </div><p class="muted" style="margin-top:8px">Il totale include ore/macchine/gasolio; il budget è solo materiali e preventivi.</p></div>
    <div class="card"><h2>Heatmap avanzamento (sito × ${VISTA==="perizia"?"categoria perizia":"categoria"})</h2><div class="scroll-x">${heat}</div></div>
@@ -1093,7 +1102,10 @@ async function rCompila(){
   </div>
   <div class="card"><h2><span class="n">4</span>Macchine <span class="muted">— obbligatorio</span></h2>
     <label class="chk"><input type="checkbox" id="c-mg-zero"> Nessuna macchina presente oggi</label>
-    <div id="c-mg-list">${DB.macchine.map(m=>`<div class="mg-row dyn-row" data-ma="${m.id}" style="grid-template-columns:1.4fr auto auto">
+    ${(()=>{const cs=(DB.siti.find(x=>x.id===sito)||{}).comune_id; const cn=(DB.comuni.find(c=>c.id===cs)||{}).nome;
+      return cs ? `<p class="muted">Macchine di <b>${esc(cn)}</b>, il comune di questo sito.</p>`
+                : `<p class="muted"><span class="flag-y">⚠️</span> Il sito non ha un comune assegnato: si vedono tutte le macchine. Impostalo in Setup → Siti.</p>`;})()}
+    <div id="c-mg-list">${macchinePerSito(sito).map(m=>`<div class="mg-row dyn-row" data-ma="${m.id}" style="grid-template-columns:1.4fr auto auto">
       <b style="align-self:center;font-size:13px">${esc(m.nome)}</b>
       <label class="chk2"><input type="checkbox" class="mg-pres"> presente</label>
       <label class="chk2"><input type="checkbox" class="mg-usata"> usata</label></div>`).join("")}</div>
@@ -1131,7 +1143,8 @@ async function inviaCompilazione(){
   const ouRows=$$("#c-ou-list .dyn-row");
   if(!ouZero && ouRows.length===0) return err("#c-err","Aggiungi le ore personale o spunta «Nessuna ora personale oggi».");
   const mgPres=$$("#c-mg-list .mg-pres").some(c=>c.checked);
-  if(!mgZero && !mgPres) return err("#c-err","Indica le macchine presenti o spunta «Nessuna macchina presente oggi».");
+  const mgNessuna=$$("#c-mg-list .mg-row").length===0;
+  if(!mgZero && !mgPres && !mgNessuna) return err("#c-err","Indica le macchine presenti o spunta «Nessuna macchina presente oggi».");
   if(!await confermaSito(sito,data)) return;
   await sb.from("compilazioni").upsert({sito_id:sito,data,compilatore:comp},{onConflict:"sito_id,data"});
   for(const r of $$("#pane-compila .sv-av")){
@@ -1228,9 +1241,12 @@ const SETUP = {
    <input type="number" step="0.01" id="par-pg" value="${DB.par?.prezzo_gasolio??0}"></div>
    <button class="btn btn-p" id="par-save">Salva parametri</button></div>
    <div class="card"><h2>Siti — ettari e avvio lavori</h2>
-   <p class="muted">La data di avvio lavori è la base per calcolare il tempo residuo alle scadenze degli interventi.</p>
-   ${data.map(s=>`<div class="dyn-row" style="grid-template-columns:1.2fr .7fr 1fr" data-id="${s.id}">
+   <p class="muted">La data di avvio lavori è la base per calcolare il tempo residuo alle scadenze. La <b>sigla</b> è il nome breve usato in dashboard, Gantt e segnalazioni, dove lo spazio è poco: in compilazione e nella conferma resta sempre il nome completo. Il <b>comune</b> decide quali macchine si vedono in compilazione: solo quelle dello stesso comune.</p>
+   ${data.map(s=>`<div class="dyn-row" style="grid-template-columns:1.1fr .55fr .9fr .6fr .9fr" data-id="${s.id}">
      <b style="align-self:center">${esc(s.nome)}</b>
+     <div><label>Sigla</label><input class="s-br" value="${esc(s.nome_breve||"")}" placeholder="${esc(s.nome.slice(0,6))}"></div>
+     <div><label>Comune ${s.comune_id?'':'<span class="flag-y">⚠️</span>'}</label><select class="s-com"><option value="">—</option>${
+       DB.comuni.map(c=>`<option value="${c.id}" ${s.comune_id===c.id?"selected":""}>${esc(c.nome)}</option>`).join("")}</select></div>
      <div><label>Ettari ${s.ettari_totali===null||s.ettari_totali===undefined?'<span class="flag-y">⚠️</span>':''}</label><input type="number" step="0.01" class="s-ha" value="${s.ettari_totali??''}"></div>
      <div><label>Avvio lavori</label><input type="date" class="s-avvio" value="${s.data_avvio||""}"></div>
    </div>`).join("")}
@@ -1242,12 +1258,12 @@ const SETUP = {
     DB.par.prezzo_gasolio=v;toast("Parametri salvati ✓")};
   $("#s-save").onclick=async()=>{
     for(const r of $$("#setup-body [data-id]"))
-      await sb.from("siti").update({ettari_totali:r.querySelector(".s-ha").value===""?null:+r.querySelector(".s-ha").value,data_avvio:r.querySelector(".s-avvio").value||null}).eq("id",+r.dataset.id);
+      await sb.from("siti").update({ettari_totali:r.querySelector(".s-ha").value===""?null:+r.querySelector(".s-ha").value,data_avvio:r.querySelector(".s-avvio").value||null,nome_breve:r.querySelector(".s-br").value.trim()||null,comune_id:+r.querySelector(".s-com").value||null}).eq("id",+r.dataset.id);
     toast("Siti salvati ✓");DB.siti=(await sb.from("siti").select("*").order("id")).data||DB.siti;
   };
  },
  async operai(){ anag("operai","Operai",[["nome","Nome",null],["tariffa_ora","€/ora","number"]]) },
- async macchine(){ anag("macchine","Macchine — elenco unico aziendale",[["nome","Nome",null],["tariffa_giorno","€/giorno","number"]]) },
+ async macchine(){ anag("macchine","Macchine — elenco unico aziendale",[["nome","Nome",null],["comune_id","Comune","select:comuni"],["tariffa_giorno","€/giorno","number"]]) },
 
  /* ---- Interventi e sotto-voci (cuore della gerarchia) ---- */
  async interventi(){
@@ -1499,35 +1515,64 @@ const SETUP = {
 };
 
 async function anag(table,titolo,campi,perSito=false){
-  const {data}=await sb.from(table).select("*").order("id");
+  const {data}=await sb.from(table).select("*").eq("attivo",true).order("id");
+  // campo generico: testo, numero, oppure tendina su una lista master ("select:comuni")
+  const campo=(k,l,t,v)=>{
+    if(t&&t.startsWith("select:")){
+      const lista=DB[t.slice(7)]||[];
+      return `<select class="an-${k}"><option value="">— ${esc(l)} —</option>${
+        lista.map(o=>`<option value="${o.id}" ${v===o.id?"selected":""}>${esc(o.nome)}</option>`).join("")}</select>`;
+    }
+    return `<input class="an-${k}" type="${t||"text"}" value="${esc(v??"")}" placeholder="${esc(l)}">`;
+  };
+  const cols=(perSito?"1fr ":"")+campi.map(([k,l,t])=>t==="number"?".7fr":"1fr").join(" ")+" auto";
   $("#setup-body").innerHTML=`<div class="card"><h2>${titolo}</h2>
-   <div id="an-list">${(data||[]).map(r=>`<div class="dyn-row" style="grid-template-columns:${perSito?"1fr ":""}1.2fr .8fr auto" data-id="${r.id}">
+   <div id="an-list">${(data||[]).map(r=>`<div class="dyn-row" style="grid-template-columns:${cols}" data-id="${r.id}">
      ${perSito?`<select class="an-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===r.sito_id?"selected":""}>${esc(s.nome)}</option>`).join("")}</select>`:""}
-     ${campi.map(([k,l,t])=>`<input class="an-${k}" type="${t||"text"}" value="${esc(r[k])}" placeholder="${l}">`).join("")}
+     ${campi.map(([k,l,t])=>campo(k,l,t,r[k])).join("")}
      <button class="x an-off" title="disattiva">×</button></div>`).join("")}</div>
    <button class="add" id="an-add">+ Aggiungi</button>
    <button class="btn btn-p" id="an-save" style="margin-top:10px">Salva</button></div>`;
   $("#an-add").onclick=()=>{$("#an-list").insertAdjacentHTML("beforeend",
-    `<div class="dyn-row" style="grid-template-columns:${perSito?"1fr ":""}1.2fr .8fr auto" data-id="">
+    `<div class="dyn-row" style="grid-template-columns:${cols}" data-id="">
      ${perSito?`<select class="an-sito">${DB.siti.map(s=>`<option value="${s.id}">${esc(s.nome)}</option>`).join("")}</select>`:""}
-     ${campi.map(([k,l,t])=>`<input class="an-${k}" type="${t||"text"}" placeholder="${l}">`).join("")}
+     ${campi.map(([k,l,t])=>campo(k,l,t,null)).join("")}
      <button class="x an-off">×</button></div>`);bindOff()};
   function bindOff(){$$(".an-off").forEach(x=>x.onclick=async()=>{
     const row=x.parentNode,id=row.dataset.id;
-    if(id) await sb.from(table).update({attivo:false}).eq("id",+id);
+    if(id){ await sb.from(table).update({attivo:false}).eq("id",+id);
+      DB[table]=(DB[table]||[]).filter(x=>x.id!==+id); }
     row.remove()})}
   bindOff();
   $("#an-save").onclick=async()=>{
+    const scartati=[], senzaCampo=[];
     for(const r of $$("#an-list .dyn-row")){
       const rec={};
-      for(const [k] of campi){const v=r.querySelector(".an-"+k).value;rec[k]=isNaN(+v)||v===""?v:+v}
+      for(const [k,,t] of campi){
+        const v=r.querySelector(".an-"+k).value;
+        if(t&&t.startsWith("select:")) rec[k]=v===""?null:+v;
+        else if(t==="number") rec[k]=v===""?0:+v;
+        else rec[k]=v;
+      }
       if(perSito)rec.sito_id=+r.querySelector(".an-sito").value;
-      if(!rec[campi[0][0]])continue;
+      const nome=String(rec[campi[0][0]]??"").trim();
+      if(!nome)continue;
+      // le tendine su liste master sono obbligatorie: senza, la voce non sarebbe visibile a nessun sito
+      const vuoto=campi.find(([k,,t])=>t&&t.startsWith("select:")&&rec[k]==null);
+      if(vuoto){ senzaCampo.push(nome+" (manca "+vuoto[1].toLowerCase()+")"); continue; }
       const id=r.dataset.id;
-      if(id)await sb.from(table).update(rec).eq("id",+id);
-      else await sb.from(table).insert(rec);
+      if(id){ await sb.from(table).update(rec).eq("id",+id); }
+      else {
+        // un nome uguale a una voce già attiva sarebbe un doppione
+        const gia=(data||[]).some(x=>String(x[campi[0][0]]??"").trim().toLowerCase()===nome.toLowerCase());
+        if(gia){ scartati.push(nome); continue; }
+        await sb.from(table).insert(rec);
+      }
     }
-    toast("Salvato ✓");
+    const avvisi=[];
+    if(scartati.length)   avvisi.push("già in elenco: "+scartati.join(", "));
+    if(senzaCampo.length) avvisi.push("non salvate: "+senzaCampo.join(", "));
+    toast(avvisi.length ? "Salvato, ma "+avvisi.join(" · ") : "Salvato ✓");
     const fresh=await sb.from(table).select("*").eq("attivo",true).order("nome");
     DB[table]=fresh.data||[];
     anag(table,titolo,campi,perSito)};
