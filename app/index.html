@@ -319,6 +319,15 @@ details.pan .pan-b{padding:0 16px 16px}
 .sg-t{color:var(--mut);text-align:right;flex-shrink:0;max-width:52%}
 @media(max-width:620px){.sg-row{flex-direction:column;gap:2px}.sg-t{text-align:left;max-width:100%}}
 @media(min-width:700px){.fascia{font-size:14px}.dyn-row{gap:10px}}
+/* ---- dashboard su schermo grande ---- */
+@media(min-width:1000px){
+  .wrap.dashw{max-width:1280px}
+  .wrap.dashw .kpi{grid-template-columns:repeat(3,1fr)}
+  .wrap.dashw .scroll-x{overflow-x:visible}
+  .wrap.dashw table.grid{font-size:13px}
+  .wrap.dashw .dash-due{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+  .wrap.dashw .dash-due>.card{margin-bottom:0}
+}
 input[type=date]:invalid,input.bad{border-color:var(--red);background:#FDF1EF}
 </style>
 </head>
@@ -465,6 +474,7 @@ async function show(k){
   $$(".tab").forEach(b=>b.classList.toggle("on",b.dataset.t===k));
   ["compila","ore","macchine","gasolio","sito","gantt","dash","setup"].forEach(p=>$("#pane-"+p).classList.toggle("hide",p!==k));
   $(".wrap").classList.toggle("wide",k==="gantt");
+  $(".wrap").classList.toggle("dashw",k==="dash");
   renderSitoBar(k==="compila"||k==="gasolio"||k==="ore"||k==="macchine");
   ({compila:rCompila,ore:rOre,macchine:rMacchine,gasolio:rGasolio,sito:rSito,gantt:rGantt,dash:rDash,setup:rSetup})[k]();
 }
@@ -1405,6 +1415,7 @@ async function rDash(){
      <table class="grid"><tr><th>Sito</th><th>Avz.</th><th>Ettari</th><th>Interno</th><th>Conto terzi</th><th>Totale</th><th>Budget</th></tr>${cons}</table>
    </div><p class="muted" style="margin-top:8px">Il totale include ore/macchine/gasolio; il budget è solo materiali e preventivi.</p></div>
    <div class="card"><h2>Heatmap avanzamento (sito × ${VISTA==="perizia"?"categoria perizia":"categoria"})</h2><div class="scroll-x">${heat}</div></div>
+   <div class="dash-due">
    <div class="card"><h2>Efficienza dei siti a confronto</h2>
      <p class="muted" style="margin-bottom:12px">Indicatori confrontabili tra siti. Verde = buono, rosso = critico. €/ha e giorni fermo: colore relativo al portfolio (più basso = meglio).</p>
      <div class="scroll-x"><div id="eff-box">${effHead}${effBody}</div></div>
@@ -1413,7 +1424,8 @@ async function rDash(){
    ${isReadOnly()?"":`<div class="card"><h2>Esporta dati (CSV)</h2><div class="row2">
      <button class="btn btn-g btn-sm" id="csv-consol" style="margin-bottom:8px">consolidamento interventi</button>
      <button class="btn btn-g btn-sm" id="csv-cons" style="margin-bottom:8px">consuntivo per sito</button></div>
-     <p class="muted" style="margin-top:6px">Il <b>consuntivo</b> riporta per ogni sito ore personale, macchine e gasolio in euro, con il totale. I ritardi sono in giorni di fermo: nel modello non hanno un valore in euro.</p></div>`}`;
+     <p class="muted" style="margin-top:6px">Il <b>consuntivo</b> riporta per ogni sito ore personale, macchine e gasolio in euro, con il totale. I ritardi sono in giorni di fermo: nel modello non hanno un valore in euro.</p></div>`}
+   </div>`;
   $$("[data-par]").forEach(i=>i.onchange=()=>salvaBudgetManuale(i.dataset.par, +i.value||0));
   $$("[data-csv]").forEach(b=>b.onclick=()=>exportCsv(b.dataset.csv));
   if($("#csv-consol"))$("#csv-consol").onclick=()=>{
