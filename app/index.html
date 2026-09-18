@@ -80,11 +80,18 @@ label{display:block;font-size:13px;font-weight:600;color:var(--mut);
 /* ---------- tab bar ---------- */
 .tabs{position:fixed;bottom:0;left:0;right:0;background:var(--white);
   border-top:1px solid var(--line);display:flex;z-index:60}
-.tab{flex:1;padding:10px 4px 12px;text-align:center;font-size:11px;font-weight:700;
-  color:var(--mut);background:none;text-transform:uppercase;letter-spacing:.03em}
+.tab{flex:1 1 0;min-width:0;padding:10px 2px 12px;text-align:center;font-size:11px;font-weight:700;
+  color:var(--mut);background:none;text-transform:uppercase;letter-spacing:.03em;
+  overflow:hidden;line-height:1.15}
 .tab .ic{display:block;font-size:20px;margin-bottom:2px}
 .tab.on{color:var(--forest)}
 .tab.on .ic{transform:scale(1.1)}
+@media(max-width:520px){
+  .tab{font-size:9px;letter-spacing:0;padding:8px 1px 10px}
+  .tab .ic{font-size:17px;margin-bottom:1px}
+}
+@media(max-width:400px){ .tab{font-size:8.2px;letter-spacing:-.02em} }
+@media(max-width:360px){ .tab{font-size:7.5px} .tab .ic{font-size:15px} }
 
 /* ---------- viste / dashboard ---------- */
 .kpi{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
@@ -453,7 +460,7 @@ async function start(){
 
 /* ---------------- TABS / ROUTING ---------------- */
 const TABS = {
-  compila:{ic:"📝",l:"Lavorazioni",who:p=>!isReadOnly()},
+  compila:{ic:"📝",l:"Lavori",who:p=>!isReadOnly()},
   ore:{ic:"⏱️",l:"Ore",who:p=>!isReadOnly()},
   macchine:{ic:"🚜",l:"Macchine",who:p=>!isReadOnly()},
   gasolio:{ic:"⛽",l:"Gasolio",who:p=>!isReadOnly()},
