@@ -550,7 +550,8 @@ function pianifica(righe){
       else {
         const p=calc(pred,visti);
         if(p.ciclo){ const c={ciclo:true}; out.set(r.id,c); return c; }
-        if(p.fine) inizio = addGG(p.fine,1);
+        // la data inserita a mano vince; il predecessore la calcola solo se manca
+        if(p.fine && !r.data_inizio) inizio = addGG(p.fine,1);
       }
     }
     const fine = (inizio && durata) ? addGG(inizio, durata-1) : null;
@@ -1423,9 +1424,52 @@ async function rDash(){
    </div>
    ${isReadOnly()?"":`<div class="card"><h2>Esporta dati (CSV)</h2><div class="row2">
      <button class="btn btn-g btn-sm" id="csv-consol" style="margin-bottom:8px">consolidamento interventi</button>
-     <button class="btn btn-g btn-sm" id="csv-cons" style="margin-bottom:8px">consuntivo per sito</button></div>
+     <button class="btn btn-g btn-sm" id="csv-cons" style="margin-bottom:8px">consuntivo per sito</button>
+     <button class="btn btn-o btn-sm" id="csv-ore" style="margin-bottom:8px">dettaglio ore uomo</button>
+     <button class="btn btn-o btn-sm" id="csv-mac" style="margin-bottom:8px">dettaglio macchine</button>
+     <button class="btn btn-o btn-sm" id="csv-gas" style="margin-bottom:8px">dettaglio gasolio</button></div>
      <p class="muted" style="margin-top:6px">Il <b>consuntivo</b> riporta per ogni sito ore personale, macchine e gasolio in euro, con il totale. I ritardi sono in giorni di fermo: nel modello non hanno un valore in euro.</p></div>`}
    </div>`;
+  const csvOut=(nome,righe)=>{
+    if(righe.length<2) return toast("Nessun dato da esportare");
+    dlCsv(nome, righe.map(r=>r.join(",")).join("\n"));
+  };
+  const Q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
+  const nomeInt=siId=>{ for(const {D} of all){ const si=(D.sito_interventi||[]).find(x=>x.id===siId);
+      if(si){ const i=DB.interventi.find(y=>y.id===si.intervento_id); return i?i.nome:"?"; } } return "?"; };
+  if($("#csv-ore")) $("#csv-ore").onclick=()=>{
+    const r=[["data","sito","lavorazione","operaio","ore","tariffa_oraria_eur","costo_eur"]];
+    all.forEach(({sito,D})=>(D.ore_uomo||[]).slice()
+      .sort((a,b)=>String(a.data).localeCompare(String(b.data)))
+      .forEach(o=>{
+        const op=DB.operai.find(x=>x.id===o.operaio_id)||{};
+        const tar=+op.tariffa_ora||0, ore=+o.ore||0;
+        r.push([Q(o.data),Q(sito.nome),Q(nomeInt(o.sito_intervento_id)),Q(op.nome||"?"),ore,tar,Math.round(ore*tar*100)/100]);
+      }));
+    csvOut("dettaglio_ore_uomo.csv",r);
+  };
+  if($("#csv-mac")) $("#csv-mac").onclick=()=>{
+    const r=[["data","sito","macchina","presente","usata","tariffa_giorno_eur","costo_eur"]];
+    all.forEach(({sito,D})=>(D.macchine_giorno||[]).slice()
+      .sort((a,b)=>String(a.data).localeCompare(String(b.data)))
+      .forEach(m=>{
+        const ma=DB.macchine.find(x=>x.id===m.macchina_id)||{};
+        const tar=+ma.tariffa_giorno||0;
+        r.push([Q(m.data),Q(sito.nome),Q(ma.nome||"?"),Q(m.presente?"sì":"no"),Q(m.usata?"sì":"no"),tar,m.presente?tar:0]);
+      }));
+    csvOut("dettaglio_macchine.csv",r);
+  };
+  if($("#csv-gas")) $("#csv-gas").onclick=()=>{
+    const pz=DB.par?.prezzo_gasolio||0;
+    const r=[["data","sito","litri","prezzo_litro_eur","costo_eur","operatore"]];
+    all.forEach(({sito,D})=>(D.gasolio||[]).slice()
+      .sort((a,b)=>String(a.data).localeCompare(String(b.data)))
+      .forEach(g=>{
+        const l=+g.litri||0;
+        r.push([Q(g.data),Q(sito.nome),l,pz,Math.round(l*pz*100)/100,Q(g.operatore||"")]);
+      }));
+    csvOut("dettaglio_gasolio.csv",r);
+  };
   $$("[data-par]").forEach(i=>i.onchange=()=>salvaBudgetManuale(i.dataset.par, +i.value||0));
   $$("[data-csv]").forEach(b=>b.onclick=()=>exportCsv(b.dataset.csv));
   if($("#csv-consol"))$("#csv-consol").onclick=()=>{
@@ -1687,6 +1731,12 @@ async function cancellaOra(sito,data,row){
 }
 
 /* ---------------- GASOLIO (livello sito) ---------------- */
+const REFERENTI_GASOLIO = ["Biagio Campo","Francesco Mastrandrea","Eristo Tripoli"];
+function operatoriGasolio(){
+  const l=[...DB.operai.map(o=>o.nome), ...REFERENTI_GASOLIO];
+  if(P&&P.nome && !l.includes(P.nome)) l.push(P.nome);   // chi compila c'è sempre
+  return [...new Set(l.filter(Boolean))].sort((a,b)=>a.localeCompare(b,"it"));
+}
 function rGasolio(){
   const sito=sitoCorrente();
   $("#pane-gasolio").innerHTML=`
@@ -1697,7 +1747,9 @@ function rGasolio(){
     <hr style="margin:16px 0;border:none;border-top:1px solid #E3E7DD">
     <div class="row2">
       <div class="field"><label>Litri prelevati</label><input type="number" id="g-litri" placeholder="litri"></div>
-      <div class="field"><label>Operatore</label><input id="g-op" value="${esc(P.nome)}"></div>
+      <div class="field"><label>Operatore</label><select id="g-op">${
+        operatoriGasolio().map(nm=>`<option value="${esc(nm)}" ${nm===P.nome?"selected":""}>${esc(nm)}</option>`).join("")
+      }</select></div>
     </div>
     <button class="btn btn-p" id="g-invia" style="width:100%">Registra rifornimento</button>
     <div class="err" id="g-err"></div>
@@ -1706,7 +1758,7 @@ function rGasolio(){
   $("#g-zero").onclick=async()=>{
     if(!dataValida($("#g-data").value)) return toast("Data non valida: controlla l'anno.");
     if(!await confermaSito(gsito(),$("#g-data").value)) return;
-    const {error}=await sb.from("gasolio").insert({sito_id:gsito(),data:$("#g-data").value,litri:0,operatore:$("#g-op").value.trim()||P.nome});
+    const {error}=await sb.from("gasolio").insert({sito_id:gsito(),data:$("#g-data").value,litri:0,operatore:$("#g-op").value||P.nome});
     if(error)return toast("Errore di salvataggio");toast("Registrato: nessun rifornimento ✓");
   };
   $("#g-invia").onclick=async()=>{
@@ -1715,7 +1767,7 @@ function rGasolio(){
     if(litri<=0)return err("#g-err","Inserisci i litri, oppure usa «Nessun rifornimento oggi».");
     if(!dataValida($("#g-data").value)) return toast("Data non valida: controlla l'anno.");
     if(!await confermaSito(gsito(),$("#g-data").value)) return;
-    const {error}=await sb.from("gasolio").insert({sito_id:gsito(),data:$("#g-data").value,litri,operatore:$("#g-op").value.trim()||P.nome});
+    const {error}=await sb.from("gasolio").insert({sito_id:gsito(),data:$("#g-data").value,litri,operatore:$("#g-op").value||P.nome});
     if(error)return toast("Errore di salvataggio");toast("Rifornimento registrato ✓");$("#g-litri").value="";
   };
 }
@@ -1868,7 +1920,8 @@ const SETUP = {
             ${["Alta","Media","Bassa"].map(p=>`<option ${si.priorita===p?"selected":""}>${p}</option>`).join("")}</select></div>
           <div><label>Scadenza</label><input type="date" class="i-scad" ${DATA_ATTR} value="${V(si.scadenza)}"></div>
           <div><label>Durata (giorni)</label><input type="number" min="1" class="i-dur" value="${V(si.durata_giorni)}"></div>
-          <div><label>Inizio previsto</label><input type="date" class="i-ini" ${DATA_ATTR} value="${V(si.data_inizio)}" ${si.dipende_da?"disabled":""}></div>
+          <div><label>Inizio previsto</label><input type="date" class="i-ini" ${DATA_ATTR} value="${V(si.data_inizio)}">
+            <small class="i-ini-nota muted ${si.dipende_da?"":"hide"}">se lo lasci vuoto parte dopo il predecessore</small></div>
         </div>
         ${isP?`<p class="muted" style="margin-top:6px;font-size:11.5px">Si misura in piante: unità di misura e quantità sono implicite. Budget = piante × costo per pianta = <b>${eur((+si.piante_previste||0)*(+si.costo_unitario||0))}</b></p>`:""}
         <div style="margin-top:10px"><label>Note</label>
@@ -1938,7 +1991,7 @@ const SETUP = {
   $$(".i-dip-on").forEach(ch=>ch.onchange=()=>{
     const card=ch.closest(".int-card");
     card.querySelector(".i-dip-box").classList.toggle("hide",!ch.checked);
-    const ini=card.querySelector(".i-ini"); if(ini) ini.disabled=ch.checked;
+    const nota=card.querySelector(".i-ini-nota"); if(nota) nota.classList.toggle("hide",!ch.checked);
     if(!ch.checked) card.querySelector(".i-dip").value="";
   });
   function bindDel(){$$(".sv-del").forEach(x=>x.onclick=()=>x.closest(".sv-row").remove());}
