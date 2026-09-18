@@ -89,6 +89,12 @@ label{display:block;font-size:13px;font-weight:600;color:var(--mut);
 /* ---------- viste / dashboard ---------- */
 .kpi{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
 .kpi .k{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:12px}
+.kpi .k .kpi-b{display:block;margin-bottom:2px}
+.kpi .k .kpi-inp{font-size:20px;font-weight:800;color:var(--forest);padding:4px 6px;border:1px dashed var(--line);
+  border-radius:6px;background:transparent;width:100%}
+.kpi .k .kpi-inp:focus{border-style:solid;border-color:var(--moss);outline:none}
+.kpi-sco-r{font-size:10.5px;color:var(--mut);margin-top:4px;line-height:1.3}
+.kpi-sco{font-weight:700;color:var(--ink);white-space:nowrap}
 .kpi .k b{font-size:22px;color:var(--forest);display:block}
 .kpi .k span{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
 .bar{height:10px;background:var(--line);border-radius:5px;overflow:hidden;margin:6px 0}
@@ -149,6 +155,9 @@ table.grid td:first-child{text-align:left;font-weight:600}
 .scad-today::after{content:"oggi";position:absolute;top:-13px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--ink);font-weight:700}
 .rit-note{font-size:12px;color:#9A3B2C;margin-top:5px}
 .rit-fm{color:#B8841F}
+.mg-dove{display:block;font-size:10.5px;font-weight:600;color:#B8841F;margin-top:1px}
+.as-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin-top:8px}
+.as-chk{border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-size:12.5px}
 .fm-list{margin-top:4px}
 .fm-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0;font-size:12px}
 .fm-rev{opacity:.55;text-decoration:line-through}
@@ -326,6 +335,8 @@ input[type=date]:invalid,input.bad{border-color:var(--red);background:#FDF1EF}
   <div id="sitobar" class="sitobar hide"></div>
   <div class="wrap">
     <div id="pane-compila"></div>
+    <div id="pane-ore" class="hide"></div>
+    <div id="pane-macchine" class="hide"></div>
     <div id="pane-gasolio" class="hide"></div>
     <div id="pane-sito" class="hide"></div>
     <div id="pane-gantt" class="hide"></div>
@@ -396,7 +407,7 @@ async function start(){
   if(!prof){err("#login-err","Utente senza profilo: contattare la direzione.");await sb.auth.signOut();return}
   P = prof;
   // anagrafiche + lista master della gerarchia (categorie/interventi)
-  const [si,ca,inv,op,ma,pa,cr,pz,lo,co] = await Promise.all([
+  const [si,ca,inv,op,ma,pa,cr,pz,lo,co,ps] = await Promise.all([
     sb.from("siti").select("*").order("id"),
     sb.from("categorie").select("*").order("ordine"),
     sb.from("interventi").select("*").order("ordine"),
@@ -407,10 +418,12 @@ async function start(){
     sb.from("categorie_perizia").select("*").order("ordine"),
     sb.from("lotti").select("*").order("ordine"),
     sb.from("comuni").select("*").order("ordine"),
+    sb.from("profili_siti").select("sito_id").eq("profilo_id",prof.id),
   ]);
   DB = {siti:si.data||[], categorie:ca.data||[], interventi:inv.data||[],
         operai:op.data||[], macchine:ma.data||[], causali:cr.data||[], perizie:pz.data||[], lotti:lo.data||[], comuni:co.data||[],
         par:Object.fromEntries((pa.data||[]).map(p=>[p.chiave,+p.valore]))};
+  DB.mieiSitiIds = (ps.data||[]).map(x=>x.sito_id);
   DB.siti.forEach(x=>pulisciDate(x,["data_avvio"]));
   $("#v-login").classList.add("hide");$("#v-app").classList.remove("hide");
   $("#who-nome").textContent = P.nome;
@@ -421,7 +434,9 @@ async function start(){
 
 /* ---------------- TABS / ROUTING ---------------- */
 const TABS = {
-  compila:{ic:"📝",l:"Compila",who:p=>!isReadOnly()},
+  compila:{ic:"📝",l:"Lavorazioni",who:p=>!isReadOnly()},
+  ore:{ic:"⏱️",l:"Ore",who:p=>!isReadOnly()},
+  macchine:{ic:"🚜",l:"Macchine",who:p=>!isReadOnly()},
   gasolio:{ic:"⛽",l:"Gasolio",who:p=>!isReadOnly()},
   sito:{ic:"📍",l:"Il mio sito",who:p=>!isReadOnly()&&!isSuper()&&p.sito_id},
   gantt:{ic:"📅",l:"Gantt",who:p=>true},
@@ -434,13 +449,14 @@ function buildTabs(){
     .map(([k,t])=>`<button class="tab" data-t="${k}"><span class="ic">${t.ic}</span>${t.l}</button>`).join("");
   $$(".tab").forEach(b=>b.onclick=()=>show(b.dataset.t));
 }
-function show(k){
+async function show(k){
+  if(CURRENT_TAB==="setup" && k!=="setup") await setupAutoSalva();
   CURRENT_TAB=k;
   $$(".tab").forEach(b=>b.classList.toggle("on",b.dataset.t===k));
-  ["compila","gasolio","sito","gantt","dash","setup"].forEach(p=>$("#pane-"+p).classList.toggle("hide",p!==k));
+  ["compila","ore","macchine","gasolio","sito","gantt","dash","setup"].forEach(p=>$("#pane-"+p).classList.toggle("hide",p!==k));
   $(".wrap").classList.toggle("wide",k==="gantt");
-  renderSitoBar(k==="compila"||k==="gasolio");
-  ({compila:rCompila,gasolio:rGasolio,sito:rSito,gantt:rGantt,dash:rDash,setup:rSetup})[k]();
+  renderSitoBar(k==="compila"||k==="gasolio"||k==="ore"||k==="macchine");
+  ({compila:rCompila,ore:rOre,macchine:rMacchine,gasolio:rGasolio,sito:rSito,gantt:rGantt,dash:rDash,setup:rSetup})[k]();
 }
 
 /* ---------------- MOTORE COSTI (logica validata) ----------------
@@ -638,9 +654,18 @@ function calcSito(sito_id, D){
 let C = null; // stato compilazione corrente
 let SITO_SEL = null;
 let CURRENT_TAB = "compila";
-function mieiSiti(){ return isSuper() ? DB.siti : DB.siti.filter(s=>s.id===P.sito_id); }
+function mieiSiti(){
+  if(isSuper()) return DB.siti;
+  const ids=new Set([...(DB.mieiSitiIds||[]), ...(P.sito_id?[P.sito_id]:[])]);
+  return DB.siti.filter(s=>ids.has(s.id));
+}
 function sitoCorrente(){ return SITO_SEL || (mieiSiti()[0]&&mieiSiti()[0].id) || P.sito_id; }
-function reRenderCurrent(){ if(CURRENT_TAB==="compila") rCompila(); else if(CURRENT_TAB==="gasolio") rGasolio(); }
+function reRenderCurrent(){
+  if(CURRENT_TAB==="compila") rCompila();
+  else if(CURRENT_TAB==="gasolio") rGasolio();
+  else if(CURRENT_TAB==="ore") rOre();
+  else if(CURRENT_TAB==="macchine") rMacchine();
+}
 function renderSitoBar(showIt){
   const bar=$("#sitobar");
   if(!showIt){bar.classList.add("hide");return;}
@@ -682,6 +707,15 @@ function stubPane(pane,titolo,blocco){
 }
 /* ====================== VISTE & DASHBOARD (Blocco 5) ====================== */
 // macchine del comune del sito; se il sito non ha comune, tutte
+/* macchine gia' registrate in un ALTRO sito in quella data: {macchina_id -> nome sito} */
+async function macchineOccupate(data, sitoId){
+  const out={};
+  if(!data) return out;
+  const {data:rows}=await sb.from("macchine_giorno").select("sito_id,macchina_id").eq("data",data);
+  (rows||[]).forEach(r=>{ if(r.sito_id!==sitoId)
+    out[r.macchina_id]=(DB.siti.find(s=>s.id===r.sito_id)||{}).nome || "altro sito"; });
+  return out;
+}
 function macchinePerSito(sitoId){
   const cs=(DB.siti.find(x=>x.id===sitoId)||{}).comune_id;
   if(!cs) return DB.macchine;
@@ -1262,6 +1296,29 @@ window.esportaGanttExcel = async () => {
 };
 
 
+/* ---- budget inseriti a mano (perizia / previsto) e scostamento dal setup ----
+   Valori unici aziendali, tenuti in `parametri`. Modificabili solo dal super user.
+   Scostamento = budget inserito - budget da setup; presentazione neutra. */
+function kpiBudgetManuale(chiave, etichetta, budgetSetup){
+  const v = +(DB.par?.[chiave]) || 0;
+  const modificabile = isSuper() && !isReadOnly();
+  const campo = modificabile
+    ? `<input type="number" step="1000" class="kpi-inp" data-par="${chiave}" value="${v||""}" placeholder="—">`
+    : `<b>${v?eur(v):"—"}</b>`;
+  let sco = '<span class="kpi-sco">—</span>';
+  if(v>0){
+    const d=v-budgetSetup, pct=Math.round(d/v*1000)/10;
+    const segno = d>0?"+":"";
+    sco = `<span class="kpi-sco">${segno}${eur(d)} · ${segno}${pct.toLocaleString("it-IT",{maximumFractionDigits:1})}%</span>`;
+  }
+  return `<div class="k"><div class="kpi-b">${campo}</div><span>${etichetta}</span>
+    <div class="kpi-sco-r">scostamento dal setup: ${sco}</div></div>`;
+}
+async function salvaBudgetManuale(chiave, valore){
+  const {error}=await sb.from("parametri").upsert({chiave,valore});
+  if(error) return toast("Errore di salvataggio");
+  DB.par[chiave]=valore; toast("Budget salvato ✓"); rDash();
+}
 let chRef=null;
 async function rDash(){
   const all = await calcTutti();
@@ -1315,6 +1372,8 @@ async function rDash(){
      <div class="k"><b>${eur(T.terzisti)}</b><span>di cui conto terzi</span></div>
      <div class="k"><b>${T.ettari.toLocaleString("it-IT",{maximumFractionDigits:1})}/${T.ettariTot}</b><span>Ettari completati</span></div>
      <div class="k"><b>${eur(T.budget)}</b><span>Budget materiali/preventivi</span></div>
+     ${kpiBudgetManuale("budget_perizia","Budget perizia",T.budget)}
+     ${kpiBudgetManuale("budget_previsto","Budget previsto",T.budget)}
    </div>
    ${segnalazioni(all)}
    <div class="switch">
@@ -1335,8 +1394,10 @@ async function rDash(){
      <div class="efflegend"><span><span class="sw" style="background:#1F5C2E"></span>ottimo</span><span><span class="sw" style="background:#8CBF66"></span>buono</span><span><span class="sw" style="background:#E8A33D"></span>attenzione</span><span><span class="sw" style="background:#C0392B"></span>critico</span><span><span class="sw" style="background:#E6E8E1"></span>n/d</span></div>
    </div>
    ${isReadOnly()?"":`<div class="card"><h2>Esporta dati (CSV)</h2><div class="row2">
-     ${["categorie","categorie_perizia","interventi","sito_interventi","sottovoci","sito_categorie","avanzamenti","avanz_piante","ore_uomo","macchine_giorno","gasolio","ritardi"].map(t=>`<button class="btn btn-o btn-sm" data-csv="${t}" style="margin-bottom:8px">${t.replace(/_/g," ")}</button>`).join("")}
-     <button class="btn btn-g btn-sm" id="csv-consol" style="margin-bottom:8px">consolidamento interventi</button></div></div>`}`;
+     <button class="btn btn-g btn-sm" id="csv-consol" style="margin-bottom:8px">consolidamento interventi</button>
+     <button class="btn btn-g btn-sm" id="csv-cons" style="margin-bottom:8px">consuntivo per sito</button></div>
+     <p class="muted" style="margin-top:6px">Il <b>consuntivo</b> riporta per ogni sito ore personale, macchine e gasolio in euro, con il totale. I ritardi sono in giorni di fermo: nel modello non hanno un valore in euro.</p></div>`}`;
+  $$("[data-par]").forEach(i=>i.onchange=()=>salvaBudgetManuale(i.dataset.par, +i.value||0));
   $$("[data-csv]").forEach(b=>b.onclick=()=>exportCsv(b.dataset.csv));
   if($("#csv-consol"))$("#csv-consol").onclick=()=>{
     const rows=[["sito","lotto","categoria","categoria_perizia","intervento","modalita","priorita","budget","avanzamento_pct","costo_maturato","da_verificare","dati_mancanti"]];
@@ -1346,6 +1407,17 @@ async function rDash(){
       p.daVerificare?"SI":"", p.mancanti.join("; ")
     ].map(v=>`"${String(v).replace(/"/g,'""')}"`))));
     dlCsv("consolidamento_interventi.csv",rows.map(r=>r.join(",")).join("\n"));
+  };
+  if($("#csv-cons"))$("#csv-cons").onclick=()=>{
+    const rows=[["sito","ore_personale_eur","macchine_eur","gasolio_eur","totale_consuntivo_eur","ritardi_giorni"]];
+    let tOre=0,tMac=0,tGas=0,tTot=0,tGg=0;
+    all.forEach(({sito,R})=>{
+      const c=R.costi, tot=c.ore+c.macchine+c.gasolio;
+      tOre+=c.ore; tMac+=c.macchine; tGas+=c.gasolio; tTot+=tot; tGg+=R.gg_fermo;
+      rows.push([`"${sito.nome.replace(/"/g,'""')}"`,Math.round(c.ore),Math.round(c.macchine),Math.round(c.gasolio),Math.round(tot),R.gg_fermo]);
+    });
+    rows.push(['"TOTALE"',Math.round(tOre),Math.round(tMac),Math.round(tGas),Math.round(tTot),tGg]);
+    dlCsv("consuntivo_per_sito.csv",rows.map(r=>r.join(",")).join("\n"));
   };
 }
 async function exportCsv(table){
@@ -1368,6 +1440,21 @@ function fasceWidget(cur){
     <button type="button" class="fascia zero ${!cur?'on':''}" data-v="0">n/d</button>
     ${FASCE.map(v=>`<button type="button" class="fascia ${cur===v?'on':''}" data-v="${v}">${v}%<small>${v-25}–${v}</small></button>`).join("")}
   </div>`;
+}
+function rigaMacchine(sito, occupate){
+  return macchinePerSito(sito).map(m=>{
+    const dove=occupate[m.id];
+    return `<div class="mg-row dyn-row" data-ma="${m.id}" style="grid-template-columns:1.4fr auto auto">
+      <b style="align-self:center;font-size:13px">${esc(m.nome)}${dove?`<span class="mg-dove">presente in ${esc(dove)}</span>`:""}</b>
+      <label class="chk2"><input type="checkbox" class="mg-pres"> presente</label>
+      <label class="chk2"><input type="checkbox" class="mg-usata"> usata</label></div>`;
+  }).join("");
+}
+async function aggiornaOccupate(){
+  const lista=$("#c-mg-list"); if(!lista) return;
+  const sito=CC?CC.sito:sitoCorrente(), data=$("#c-data")?$("#c-data").value:null;
+  const occ=await macchineOccupate(data,sito);
+  lista.innerHTML=rigaMacchine(sito,occ);
 }
 async function rCompila(){
   const sito = sitoCorrente();
@@ -1406,22 +1493,7 @@ async function rCompila(){
     <p class="muted">Per ogni sotto-voce indica la fascia raggiunta (cumulativa). Lascia n/d se non c'è avanzamento.</p>
     ${avzHtml||'<p class="muted">Nessun intervento attivo in questo sito: configuralo nel Setup.</p>'}
   </div>
-  <div class="card"><h2><span class="n">3</span>Ore personale <span class="muted">— obbligatorio (anche 0)</span></h2>
-    <label class="chk"><input type="checkbox" id="c-ou-zero"> Nessuna ora personale oggi</label>
-    <div id="c-ou-list"></div>
-    <button class="add" id="c-ou-add">+ Aggiungi operaio</button>
-  </div>
-  <div class="card"><h2><span class="n">4</span>Macchine <span class="muted">— obbligatorio</span></h2>
-    <label class="chk"><input type="checkbox" id="c-mg-zero"> Nessuna macchina presente oggi</label>
-    ${(()=>{const cs=(DB.siti.find(x=>x.id===sito)||{}).comune_id; const cn=(DB.comuni.find(c=>c.id===cs)||{}).nome;
-      return cs ? `<p class="muted">Macchine di <b>${esc(cn)}</b>, il comune di questo sito.</p>`
-                : `<p class="muted"><span class="flag-y">⚠️</span> Il sito non ha un comune assegnato: si vedono tutte le macchine. Impostalo in Setup → Siti.</p>`;})()}
-    <div id="c-mg-list">${macchinePerSito(sito).map(m=>`<div class="mg-row dyn-row" data-ma="${m.id}" style="grid-template-columns:1.4fr auto auto">
-      <b style="align-self:center;font-size:13px">${esc(m.nome)}</b>
-      <label class="chk2"><input type="checkbox" class="mg-pres"> presente</label>
-      <label class="chk2"><input type="checkbox" class="mg-usata"> usata</label></div>`).join("")}</div>
-  </div>
-  <div class="card"><h2><span class="n">5</span>Ritardi / fermi</h2>
+  <div class="card"><h2><span class="n">3</span>Ritardi / fermi</h2>
     <div id="c-ri-list"></div>
     <button class="add" id="c-ri-add">+ Segnala ritardo</button>
   </div>
@@ -1430,12 +1502,6 @@ async function rCompila(){
   // fasce
   $$("#pane-compila .fasce").forEach(g=>g.querySelectorAll(".fascia").forEach(btn=>btn.onclick=()=>{
     g.querySelectorAll(".fascia").forEach(b=>b.classList.remove("on"));btn.classList.add("on");}));
-  // ore
-  const ouRow=()=>`<div class="dyn-row" style="grid-template-columns:1.3fr 1fr .7fr auto">
-    <select class="ou-int">${intOpts}</select>
-    <select class="ou-op">${DB.operai.map(o=>`<option value="${o.id}">${esc(o.nome)}</option>`).join("")}</select>
-    <input type="number" class="ou-ore" placeholder="ore"><button class="x" onclick="this.parentNode.remove()">×</button></div>`;
-  $("#c-ou-add").onclick=()=>$("#c-ou-list").insertAdjacentHTML("beforeend",ouRow());
   // ritardi
   const causaliOpts=DB.causali.map(c=>`<option value="${c.id}">${esc(c.nome)}${c.forza_maggiore?" (forza maggiore)":""}</option>`).join("");
   const riRow=()=>`<div class="dyn-row" style="grid-template-columns:1.2fr .5fr 1.3fr auto">
@@ -1451,12 +1517,6 @@ async function inviaCompilazione(){
   const sito=CC.sito, data=$("#c-data").value, comp=$("#c-comp").value.trim()||P.nome;
   if(data && !dataValida(data)) return err("#c-err","Data non valida: controlla l'anno.");
   if(!data) return err("#c-err","Indica la data.");
-  const ouZero=$("#c-ou-zero").checked, mgZero=$("#c-mg-zero").checked;
-  const ouRows=$$("#c-ou-list .dyn-row");
-  if(!ouZero && ouRows.length===0) return err("#c-err","Aggiungi le ore personale o spunta «Nessuna ora personale oggi».");
-  const mgPres=$$("#c-mg-list .mg-pres").some(c=>c.checked);
-  const mgNessuna=$$("#c-mg-list .mg-row").length===0;
-  if(!mgZero && !mgPres && !mgNessuna) return err("#c-err","Indica le macchine presenti o spunta «Nessuna macchina presente oggi».");
   if(!await confermaSito(sito,data)) return;
   await sb.from("compilazioni").upsert({sito_id:sito,data,compilatore:comp},{onConflict:"sito_id,data"});
   for(const r of $$("#pane-compila .sv-av")){
@@ -1469,14 +1529,6 @@ async function inviaCompilazione(){
     const v=+r.querySelector(".cp-piante").value||0;
     if(v>0) await sb.from("avanz_piante").insert({sito_id:sito,sito_intervento_id:+r.dataset.piante,data,compilatore:comp,piante:v});
   }
-  if(!ouZero) for(const r of ouRows){
-    const si=+r.querySelector(".ou-int").value, op=+r.querySelector(".ou-op").value, ore=+r.querySelector(".ou-ore").value||0;
-    if(ore>0) await sb.from("ore_uomo").insert({sito_id:sito,sito_intervento_id:si,operaio_id:op,data,ore});
-  }
-  if(!mgZero) for(const r of $$("#c-mg-list .mg-row")){
-    if(r.querySelector(".mg-pres").checked)
-      await sb.from("macchine_giorno").insert({sito_id:sito,macchina_id:+r.dataset.ma,data,presente:true,usata:r.querySelector(".mg-usata").checked});
-  }
   for(const r of $$("#c-ri-list .dyn-row")){
     const gg=+r.querySelector(".ri-gg").value||0; if(gg<=0)continue;
     const si=r.querySelector(".ri-int").value;
@@ -1486,6 +1538,123 @@ async function inviaCompilazione(){
       causa:caus?caus.nome:null, forza_maggiore:caus?!!caus.forza_maggiore:false});
   }
   toast("Compilazione inviata ✓"); rCompila();
+}
+
+/* ====================== SCHEDA MACCHINE (salvataggio automatico) ====================== */
+let MG_DATA=null;
+async function rMacchine(){
+  const sito=sitoCorrente();
+  const data=MG_DATA||oggi();
+  const cs=(DB.siti.find(x=>x.id===sito)||{}).comune_id;
+  const cn=(DB.comuni.find(c=>c.id===cs)||{}).nome;
+  $("#pane-macchine").innerHTML=`
+  <div class="card"><h2>🚜 Macchine</h2>
+    <p class="muted">Spunta le macchine presenti: si salva da sé, senza inviare altro. Riaprendo la scheda su una data vedi e modifichi quello che hai già registrato.</p>
+    <div class="field"><label>Data</label><input type="date" id="mg-data" ${DATA_ATTR} value="${data}"></div>
+    ${cs?`<p class="muted">Macchine di <b>${esc(cn)}</b>, il comune di questo sito.</p>`
+        :`<p class="muted"><span class="flag-y">⚠️</span> Il sito non ha un comune assegnato: si vedono tutte le macchine.</p>`}
+    <div id="mg-list"><p class="muted">Carico…</p></div>
+  </div>`;
+  $("#mg-data").onchange=e=>{ MG_DATA=e.target.value; rMacchine(); };
+  await disegnaMacchine(sito,data);
+}
+async function disegnaMacchine(sito,data){
+  const box=$("#mg-list"); if(!box) return;
+  const {data:rows}=await sb.from("macchine_giorno").select("*").eq("data",data);
+  const mie={}, altrui={};
+  (rows||[]).forEach(r=>{ if(r.sito_id===sito) mie[r.macchina_id]=r;
+    else altrui[r.macchina_id]=(DB.siti.find(s=>s.id===r.sito_id)||{}).nome||"altro sito"; });
+  box.innerHTML=macchinePerSito(sito).map(m=>{
+    const r=mie[m.id], dove=altrui[m.id];
+    return `<div class="mg-row dyn-row" data-ma="${m.id}" style="grid-template-columns:1.4fr auto auto">
+      <b style="align-self:center;font-size:13px">${esc(m.nome)}${dove?`<span class="mg-dove">presente in ${esc(dove)}</span>`:""}</b>
+      <label class="chk2"><input type="checkbox" class="mg-pres" ${r?"checked":""}> presente</label>
+      <label class="chk2"><input type="checkbox" class="mg-usata" ${r&&r.usata?"checked":""}> usata</label></div>`;
+  }).join("")||'<p class="muted">Nessuna macchina disponibile per questo comune.</p>';
+  $$("#mg-list .mg-row").forEach(row=>{
+    const pres=row.querySelector(".mg-pres"), usa=row.querySelector(".mg-usata");
+    const salva=()=>salvaMacchina(sito,data,+row.dataset.ma,pres.checked,usa.checked);
+    pres.onchange=()=>{ if(!pres.checked) usa.checked=false; salva(); };
+    usa.onchange=()=>{ if(usa.checked && !pres.checked) pres.checked=true; salva(); };
+  });
+}
+async function salvaMacchina(sito,data,mid,presente,usata){
+  // la macchina sta in un solo sito per giornata: la si toglie ovunque e la si rimette qui
+  const {data:prima}=await sb.from("macchine_giorno").select("sito_id").eq("data",data).eq("macchina_id",mid);
+  const fuori=(prima||[]).filter(x=>x.sito_id!==sito);
+  await sb.from("macchine_giorno").delete().eq("data",data).eq("macchina_id",mid);
+  if(presente){
+    const {error}=await sb.from("macchine_giorno").insert({sito_id:sito,macchina_id:mid,data,presente:true,usata});
+    if(error) return toast("Errore di salvataggio");
+    const nome=(DB.macchine.find(m=>m.id===mid)||{}).nome||"macchina";
+    if(fuori.length){
+      const da=(DB.siti.find(s=>s.id===fuori[0].sito_id)||{}).nome||"altro sito";
+      toast(nome+": spostata da "+da+" ✓");
+    } else toast("Salvato ✓");
+  } else toast("Rimossa ✓");
+  await disegnaMacchine(sito,data);
+}
+
+/* ====================== SCHEDA ORE UOMO (salvataggio automatico) ====================== */
+let OU_DATA=null;
+async function rOre(){
+  const sito=sitoCorrente();
+  const data=OU_DATA||oggi();
+  const D=await datiSito(sito);
+  const attivi=D.sito_interventi.filter(si=>si.attivo && !si.annullato);
+  const intOpts=attivi.map(si=>{const i=DB.interventi.find(x=>x.id===si.intervento_id);
+    return `<option value="${si.id}">${esc(i?i.nome:'?')}</option>`}).join("");
+  const opOpts=DB.operai.map(o=>`<option value="${o.id}">${esc(o.nome)}</option>`).join("");
+  $("#pane-ore").innerHTML=`
+  <div class="card"><h2>⏱️ Ore personale</h2>
+    <p class="muted">Ogni riga si salva da sé appena è completa. Riaprendo la scheda su una data ritrovi le ore già registrate e puoi correggerle o cancellarle.</p>
+    <div class="field"><label>Data</label><input type="date" id="ou-data" ${DATA_ATTR} value="${data}"></div>
+    <div id="ou-list"><p class="muted">Carico…</p></div>
+    <button class="add" id="ou-add">+ Aggiungi riga</button>
+  </div>`;
+  $("#ou-data").onchange=e=>{ OU_DATA=e.target.value; rOre(); };
+  const righe=(D.ore_uomo||[]).filter(o=>o.data===data);
+  const riga=(o)=>`<div class="dyn-row ou-row" data-id="${o?o.id:""}" style="grid-template-columns:1.3fr 1fr .7fr auto">
+    <select class="ou-int">${intOpts}</select>
+    <select class="ou-op">${opOpts}</select>
+    <input type="number" step="0.5" class="ou-ore" placeholder="ore" value="${o?o.ore:""}">
+    <button class="x ou-del">×</button></div>`;
+  $("#ou-list").innerHTML = righe.length?righe.map(riga).join(""):"";
+  righe.forEach((o,i)=>{
+    const r=$$("#ou-list .ou-row")[i];
+    r.querySelector(".ou-int").value=o.sito_intervento_id;
+    r.querySelector(".ou-op").value=o.operaio_id;
+  });
+  const aggancia=()=>{
+    $$("#ou-list .ou-row").forEach(r=>{
+      r.querySelectorAll("select,input").forEach(el=>el.onchange=()=>salvaOra(sito,data,r));
+      r.querySelector(".ou-del").onclick=()=>cancellaOra(sito,data,r);
+    });
+  };
+  $("#ou-add").onclick=()=>{ $("#ou-list").insertAdjacentHTML("beforeend",riga(null)); aggancia(); };
+  aggancia();
+}
+async function salvaOra(sito,data,row){
+  const si=+row.querySelector(".ou-int").value, op=+row.querySelector(".ou-op").value;
+  const ore=+row.querySelector(".ou-ore").value||0;
+  if(!si||!op||ore<=0) return;            // riga non ancora completa
+  const id=row.dataset.id;
+  if(id){
+    const {error}=await sb.from("ore_uomo").update({sito_intervento_id:si,operaio_id:op,ore}).eq("id",+id);
+    if(error) return toast("Errore di salvataggio");
+    toast("Aggiornato ✓");
+  } else {
+    const {data:ins,error}=await sb.from("ore_uomo").insert({sito_id:sito,sito_intervento_id:si,operaio_id:op,data,ore}).select().single();
+    if(error) return toast("Errore di salvataggio");
+    if(ins) row.dataset.id=ins.id;
+    toast("Salvato ✓");
+  }
+}
+async function cancellaOra(sito,data,row){
+  const id=row.dataset.id;
+  if(id){ const {error}=await sb.from("ore_uomo").delete().eq("id",+id);
+    if(error) return toast("Errore"); toast("Riga cancellata ✓"); }
+  row.remove();
 }
 
 /* ---------------- GASOLIO (livello sito) ---------------- */
@@ -1533,9 +1702,15 @@ async function rSetup(){
       <button class="btn btn-o btn-sm" data-s="macchine">Macchine</button>
       <button class="btn btn-o btn-sm" data-s="interventi">Interventi e sotto-voci</button>
       <button class="btn btn-o btn-sm" data-s="pesi">Pesi categorie</button>
-    </div></div>
+      <button class="btn btn-o btn-sm" data-s="assegnazioni">Assegnazioni FM</button>
+    </div>
+    <p class="muted" id="setup-stato" style="margin-top:10px">tutto salvato \u2713</p></div>
   <div id="setup-body"></div>`;
-  $$("[data-s]").forEach(b=>b.onclick=()=>SETUP[b.dataset.s]());
+  $$("[data-s]").forEach(b=>b.onclick=async()=>{ await setupAutoSalva(); SETUP[b.dataset.s](); });
+  const body=$("#setup-body");
+  body.addEventListener("input", setupMarcaDirty);
+  body.addEventListener("change", setupMarcaDirty);
+  SETUP_DIRTY=false; setupAggiornaStato();
   SETUP.interventi();
 }
 
@@ -1546,6 +1721,31 @@ function svRow(id,nome){
 }
 
 let CAT_SEL=null, LOTTO_SEL=null, NUOVA_RIGA=null;
+/* ---- SALVATAGGIO AUTOMATICO DEL SETUP ----
+   Ogni sezione registra la propria funzione di salvataggio in SETUP_SALVA.
+   Cambiando sezione, sito, categoria o scheda le modifiche in sospeso
+   vengono salvate da sole; il pulsante resta come conferma manuale. */
+let SETUP_SALVA=null, SETUP_DIRTY=false;
+async function setupAutoSalva(){
+  if(!SETUP_DIRTY || !SETUP_SALVA) return;
+  const f=SETUP_SALVA;
+  try{ await f(true); }catch(e){ toast("Salvataggio automatico non riuscito"); }
+}
+function setupMarcaDirty(e){
+  const t=e&&e.target;
+  if(t&&t.matches&&t.matches("#i-sito,#i-cat,#i-lotto,#w-sito")) return; // selettori di sezione
+  SETUP_DIRTY=true; setupAggiornaStato();
+}
+function setupAggiornaStato(){
+  const s=document.getElementById("setup-stato");
+  if(s) s.innerHTML = SETUP_DIRTY
+    ? '<b style="color:var(--gold)">\u25CF modifiche non salvate</b> \u2014 si salvano da sole quando cambi sezione o scheda'
+    : 'tutto salvato \u2713';
+  document.querySelectorAll("#setup-body .btn-p").forEach(b=>{
+    b.style.background = SETUP_DIRTY ? "var(--gold)" : "";
+    b.style.color      = SETUP_DIRTY ? "#fff" : "";
+  });
+}
 const SETUP = {
  /* ---- Siti e parametri ---- */
  async siti(){
@@ -1565,18 +1765,23 @@ const SETUP = {
      <div><label>Avvio lavori</label><input type="date" class="s-avvio" ${DATA_ATTR} value="${esc(s.data_avvio||"")}"></div>
    </div>`).join("")}
    <button class="btn btn-p" id="s-save">Salva siti</button></div>`;
-  $("#par-save").onclick=async()=>{
+  const salvaSiti=async(silenzioso)=>{
     const v=+$("#par-pg").value||0;
     const {error}=await sb.from("parametri").upsert({chiave:"prezzo_gasolio",valore:v});
     if(error)return toast("Errore di salvataggio");
-    DB.par.prezzo_gasolio=v;toast("Parametri salvati ✓")};
-  $("#s-save").onclick=async()=>{
+    DB.par.prezzo_gasolio=v;
     const badS=dateErrate($$("#setup-body .s-avvio"));
     if(badS.length){ badS[0].scrollIntoView({block:"center"}); return toast("Data di avvio non valida: usa un anno tra "+ANNO_MIN+" e "+ANNO_MAX+". Niente salvato."); }
     for(const r of $$("#setup-body [data-id]"))
       await sb.from("siti").update({ettari_totali:r.querySelector(".s-ha").value===""?null:+r.querySelector(".s-ha").value,data_avvio:r.querySelector(".s-avvio").value||null,nome_breve:r.querySelector(".s-br").value.trim()||null,comune_id:+r.querySelector(".s-com").value||null}).eq("id",+r.dataset.id);
-    toast("Siti salvati ✓");DB.siti=(await sb.from("siti").select("*").order("id")).data||DB.siti;DB.siti.forEach(x=>pulisciDate(x,["data_avvio"]));
+    DB.siti=(await sb.from("siti").select("*").order("id")).data||DB.siti;DB.siti.forEach(x=>pulisciDate(x,["data_avvio"]));
+    SETUP_DIRTY=false; setupAggiornaStato();
+    toast(silenzioso?"Modifiche salvate ✓":"Siti e parametri salvati ✓");
   };
+  SETUP_SALVA=salvaSiti;
+  $("#par-save").onclick=()=>salvaSiti(false);
+  $("#s-save").onclick=()=>salvaSiti(false);
+  SETUP_DIRTY=false; setupAggiornaStato();   // render pulito: nessuna modifica in sospeso
  },
  async operai(){ anag("operai","Operai",[["nome","Nome",null],["tariffa_ora","€/ora","number"]]) },
  async macchine(){ anag("macchine","Macchine — elenco unico aziendale",[["nome","Nome",null],["comune_id","Comune","select:comuni"],["tariffa_giorno","€/giorno","number"]]) },
@@ -1691,9 +1896,9 @@ const SETUP = {
       </div>
       <button class="btn btn-o btn-sm" id="new-go" style="margin-top:10px">+ Crea e aggiungi al sito</button></div>
     <button class="btn btn-p" id="i-save">Salva categoria</button>`;
-  $("#i-sito").onchange=()=>SETUP.interventi();
-  $("#i-cat").onchange=()=>SETUP.interventi();
-  $("#i-lotto").onchange=()=>SETUP.interventi();
+  $("#i-sito").onchange=async()=>{ await setupAutoSalva(); SETUP.interventi(); };
+  $("#i-cat").onchange=async()=>{ await setupAutoSalva(); SETUP.interventi(); };
+  $("#i-lotto").onchange=async()=>{ await setupAutoSalva(); SETUP.interventi(); };
   $$(".i-attivo").forEach(ch=>ch.onchange=()=>ch.closest(".int-card").querySelector(".i-body").classList.toggle("hide",!ch.checked));
   // budget = quantità x costo unitario (auto, sovrascrivibile)
   $$(".int-card").forEach(card=>{
@@ -1759,7 +1964,7 @@ const SETUP = {
     toast("«"+nome+"» aggiunta all'anagrafica ✓");
     await aggiungiAlSito(data.id, $("#add-lot")?.value || DB.lotti[0].nome);
   };
-  $("#i-save").onclick=async()=>{
+  const salvaCategoria=async(silenzioso)=>{
     const N=el=>{ if(!el) return null; return el.value===""?null:+el.value; };
     const badI=dateErrate($$(".int-card:not(.annull) .i-scad, .int-card:not(.annull) .i-ini:not([disabled])"));
     if(badI.length){
@@ -1803,8 +2008,45 @@ const SETUP = {
         for(const e of existing) if(!present.includes(e.id)) await sb.from("sottovoci").delete().eq("id",e.id);
       }
     }
+    SETUP_DIRTY=false; setupAggiornaStato();
+    if(silenzioso){ toast("Modifiche salvate ✓"); return; }
     toast("Categoria salvata ✓");SETUP.interventi();
   };
+  SETUP_SALVA=salvaCategoria;
+  $("#i-save").onclick=()=>salvaCategoria(false);
+  SETUP_DIRTY=false; setupAggiornaStato();   // render pulito: nessuna modifica in sospeso
+ },
+
+ /* ---- Assegnazioni FM -> siti ---- */
+ async assegnazioni(){
+  const [{data:prof},{data:ass}] = await Promise.all([
+    sb.from("profili").select("*").order("nome"),
+    sb.from("profili_siti").select("*"),
+  ]);
+  const fm=(prof||[]).filter(u=>!u.super_user && !u.sola_lettura);
+  const ha=(uid,sid)=>(ass||[]).some(a=>a.profilo_id===uid && a.sito_id===sid);
+  const blocchi=fm.map(u=>`<div class="card" data-prof="${u.id}" style="padding:12px">
+      <b>${esc(u.nome)}</b> <span class="muted">${esc(u.ruolo||"")}</span>
+      <div class="as-grid">${DB.siti.map(s=>`<label class="chk2 as-chk">
+        <input type="checkbox" class="as-sito" data-sito="${s.id}" ${ha(u.id,s.id)?"checked":""}> ${esc(s.nome)}
+      </label>`).join("")}</div></div>`).join("");
+  $("#setup-body").innerHTML=`<div class="card"><h2>Assegnazioni FM</h2>
+    <p class="muted">Spunta i siti che ogni Field Manager pu\u00f2 vedere e compilare. Un FM pu\u00f2 averne pi\u00f9 di uno; togliendo la spunta perde l'accesso a quel sito. Super user e board vedono sempre tutto e non compaiono qui.</p></div>
+    ${blocchi||'<div class="card"><p class="muted">Nessun Field Manager registrato.</p></div>'}
+    <button class="btn btn-p" id="as-save">Salva assegnazioni</button>`;
+  const salvaAss=async(silenzioso)=>{
+    for(const card of $$("#setup-body [data-prof]")){
+      const uid=card.dataset.prof;
+      const vuole=[...card.querySelectorAll(".as-sito")].filter(c=>c.checked).map(c=>+c.dataset.sito);
+      await sb.from("profili_siti").delete().eq("profilo_id",uid);
+      for(const sid of vuole) await sb.from("profili_siti").insert({profilo_id:uid,sito_id:sid});
+    }
+    SETUP_DIRTY=false; setupAggiornaStato();
+    toast(silenzioso?"Modifiche salvate \u2713":"Assegnazioni salvate \u2713");
+  };
+  SETUP_SALVA=salvaAss;
+  $("#as-save").onclick=()=>salvaAss(false);
+  SETUP_DIRTY=false; setupAggiornaStato();
  },
 
  /* ---- Pesi categorie (per sito) ---- */
@@ -1828,11 +2070,15 @@ const SETUP = {
   const upd=()=>{const t=$$(".w-val").reduce((s,i)=>s+(+i.value||0),0);
     $("#w-sum").innerHTML=`Somma pesi: <b style="color:${t===100?'var(--forest)':'var(--gold)'}">${t}%</b>`;};
   $$(".w-val").forEach(i=>i.oninput=upd);upd();
-  $("#w-sito").onchange=()=>SETUP.pesi();
-  $("#w-save").onclick=async()=>{
+  const salvaPesi=async(silenzioso)=>{
     for(const r of $$("#setup-body [data-cat]"))
       await sb.from("sito_categorie").upsert({sito_id:sid,categoria_id:+r.dataset.cat,peso_pct:+r.querySelector(".w-val").value||0},{onConflict:"sito_id,categoria_id"});
-    toast("Pesi salvati ✓");};
+    SETUP_DIRTY=false; setupAggiornaStato();
+    toast(silenzioso?"Modifiche salvate ✓":"Pesi salvati ✓");};
+  SETUP_SALVA=salvaPesi;
+  $("#w-sito").onchange=async()=>{ await setupAutoSalva(); SETUP.pesi(); };
+  $("#w-save").onclick=()=>salvaPesi(false);
+  SETUP_DIRTY=false; setupAggiornaStato();   // render pulito: nessuna modifica in sospeso
  },
 };
 
@@ -1866,7 +2112,7 @@ async function anag(table,titolo,campi,perSito=false){
       DB[table]=(DB[table]||[]).filter(x=>x.id!==+id); }
     row.remove()})}
   bindOff();
-  $("#an-save").onclick=async()=>{
+  const salvaAnag=async(silenzioso)=>{
     const scartati=[], senzaCampo=[];
     for(const r of $$("#an-list .dyn-row")){
       const rec={};
@@ -1894,11 +2140,17 @@ async function anag(table,titolo,campi,perSito=false){
     const avvisi=[];
     if(scartati.length)   avvisi.push("già in elenco: "+scartati.join(", "));
     if(senzaCampo.length) avvisi.push("non salvate: "+senzaCampo.join(", "));
-    toast(avvisi.length ? "Salvato, ma "+avvisi.join(" · ") : "Salvato ✓");
+    SETUP_DIRTY=false; setupAggiornaStato();
+    toast(avvisi.length ? "Salvato, ma "+avvisi.join(" · ") : (silenzioso?"Modifiche salvate ✓":"Salvato ✓"));
     const fresh=await sb.from(table).select("*").eq("attivo",true).order("nome");
     DB[table]=fresh.data||[];
-    anag(table,titolo,campi,perSito)};
+    if(!silenzioso) anag(table,titolo,campi,perSito)};
+  SETUP_SALVA=salvaAnag;
+  $("#an-save").onclick=()=>salvaAnag(false);
+  SETUP_DIRTY=false; setupAggiornaStato();   // render pulito: nessuna modifica in sospeso
 }
+
+window.addEventListener("beforeunload", e=>{ if(SETUP_DIRTY){ e.preventDefault(); e.returnValue=""; } });
 
 /* ---------------- avvio ---------------- */
 start();
