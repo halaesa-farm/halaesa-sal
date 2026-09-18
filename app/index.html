@@ -155,6 +155,16 @@ table.grid td:first-child{text-align:left;font-weight:600}
 .scad-today::after{content:"oggi";position:absolute;top:-13px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--ink);font-weight:700}
 .rit-note{font-size:12px;color:#9A3B2C;margin-top:5px}
 .rit-fm{color:#B8841F}
+details.pan{padding:0}
+details.pan>summary.pan-h{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;
+  flex-wrap:wrap;padding:14px 16px}
+details.pan>summary.pan-h::-webkit-details-marker{display:none}
+details.pan .pan-t{font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--forest)}
+details.pan .pan-apri{margin-left:auto;font-size:11px;color:var(--mut);border:1px solid var(--line);
+  border-radius:20px;padding:2px 10px}
+details.pan[open] .pan-apri::after{content:" ▲"}
+details.pan:not([open]) .pan-apri::after{content:" ▼"}
+details.pan .pan-b{padding:0 16px 16px}
 .mg-dove{display:block;font-size:10.5px;font-weight:600;color:#B8841F;margin-top:1px}
 .as-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin-top:8px}
 .as-chk{border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-size:12.5px}
@@ -851,7 +861,7 @@ function renderScadenzeRaggruppate(items, consentiRevoca){
   const blocchi=Object.entries(gruppi).sort((a,b)=>nAl(b[1])-nAl(a[1])).map(([k,v])=>{
     v.sort((a,b)=>(ordS[a.stato]-ordS[b.stato])||((a.rim??1e9)-(b.rim??1e9)));
     const al=nAl(v), fatti=v.filter(i=>i.stato==="completato").length;
-    return `<details class="sg-sito"${al?" open":""}>
+    return `<details class="sg-sito">
       <summary><span class="sg-nome">${esc(k)}</span>
         ${al?`<span class="flag-r">⏰ ${al}</span>`:""}
         ${fatti?`<span class="flag-y" style="background:#E4F0D8;color:#2E7D32">✓ ${fatti}</span>`:""}
@@ -859,7 +869,10 @@ function renderScadenzeRaggruppate(items, consentiRevoca){
       <div class="sg-body">${v.map(i=>rigaScadenza(i,consentiRevoca)).join("")}</div></details>`;
   }).join("");
   const lottiOpt=lotti.map(l=>`<option ${SC_LOTTO===l?"selected":""}>${esc(l)}</option>`).join("");
-  return `<div class="card"><h2>Scadenze portfolio</h2>
+  return `<details class="card pan"><summary class="pan-h"><span class="pan-t">Scadenze portfolio</span>
+      ${urgenti.length?`<span class="flag-r">⏰ ${urgenti.length}</span>`:""}
+      <span class="pan-apri">apri</span></summary>
+    <div class="pan-b">
     <div class="row2" style="margin-bottom:10px">
       <div><label>Raggruppa per</label><select onchange="setScad('g',this.value)">
         <option value="sito" ${SC_GRUPPO==="sito"?"selected":""}>Sito</option>
@@ -869,7 +882,7 @@ function renderScadenzeRaggruppate(items, consentiRevoca){
     ${urgenti.length?`<div class="banner banner-alert">⏰ ${urgenti.length} ${urgenti.length===1?"intervento richiede":"interventi richiedono"} attenzione</div>
       ${urgenti.map(i=>rigaScadenza(i,consentiRevoca)).join("")}`
      :`<p class="muted" style="margin-bottom:10px">Nessun intervento in allarme sulle scadenze.</p>`}
-    ${blocchi?`<p class="muted" style="margin:14px 0 8px;font-size:11.5px">Tutte le scadenze, raggruppate. I gruppi con allarmi sono aperti.</p>${blocchi}`:""}
+    ${blocchi?`<p class="muted" style="margin:14px 0 8px;font-size:11.5px">Tutte le scadenze, raggruppate: tocca un gruppo per aprirlo.</p>${blocchi}`:""}
     ${senza.length?`<details class="sg-sito" style="margin-top:8px"><summary>
       <span class="sg-nome">⚠️ ${senza.length} interventi senza scadenza</span>
       <span class="sg-apri">impostala nel Setup</span></summary>
@@ -877,7 +890,7 @@ function renderScadenzeRaggruppate(items, consentiRevoca){
         <span class="sg-n">${esc(i.nome)}</span><span class="sg-t">${esc(i.sito||"")}${
         i.lotto&&i.lotto!=="Intero sito"?" · "+esc(i.lotto):""}</span></div>`).join("")}
         ${senza.length>60?`<p class="muted">…e altri ${senza.length-60}.</p>`:""}</div></details>`:""}
-  </div>`;
+  </div></details>`;
 }
 
 window.revocaProroga = async (id, val) => {
@@ -906,7 +919,7 @@ function segnalazioni(all){
   const voce=(x,t)=>`<div class="sg-row"><span class="sg-n">${t==="r"?"🚩":"⚠️"} ${esc(x.nome)}${
       x.lotto&&x.lotto!=="Intero sito"?` <span class="lotto-tag urg">${esc(x.lotto)}</span>`:""}</span>
     <span class="sg-t">${esc(x.txt)}</span></div>`;
-  const blocchi=perSito.map(s=>`<details class="sg-sito"${s.rosse.length?" open":""}>
+  const blocchi=perSito.map(s=>`<details class="sg-sito">
     <summary><span class="sg-nome">${esc(s.nome)}</span>
       ${s.rosse.length?`<span class="flag-r">🚩 ${s.rosse.length}</span>`:""}
       ${s.gialle.length?`<span class="flag-y">⚠️ ${s.gialle.length}</span>`:""}
@@ -916,11 +929,15 @@ function segnalazioni(all){
       ${s.gialle.length?`<details class="sg-sub"><summary><span class="sg-tit" style="margin:0">Dati da inserire nel Setup — ${s.gialle.length}</span></summary>
         <div>${s.gialle.map(x=>voce(x,"y")).join("")}</div></details>`:""}
     </div></details>`).join("");
-  return `<div class="card"><h2>Dati da verificare</h2>
+  return `<details class="card pan"><summary class="pan-h"><span class="pan-t">Dati da verificare</span>
+      ${totR?`<span class="flag-r">🚩 ${totR}</span>`:""}
+      ${totY?`<span class="flag-y">⚠️ ${totY}</span>`:""}
+      <span class="pan-apri">apri</span></summary>
+    <div class="pan-b">
     <div class="sg-tot"><span><b>${totR}</b> cifre da verificare</span><span><b>${totY}</b> voci da completare</span>
       <span><b>${perSito.length}</b> siti coinvolti</span></div>
-    <p class="muted" style="margin:2px 0 10px">I siti con cifre in dubbio sono aperti; gli altri si aprono con un tocco.</p>
-    ${blocchi}</div>`;
+    <p class="muted" style="margin:2px 0 10px">Ogni sito si apre con un tocco.</p>
+    ${blocchi}</div></details>`;
 }
 async function calcTutti(){
   const out=[];
