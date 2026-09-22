@@ -363,7 +363,7 @@ input[type=date]:invalid,input.bad{border-color:var(--red);background:#FDF1EF}
     <div id="pane-compila"></div>
     <div id="pane-ore" class="hide"></div>
     <div id="pane-macchine" class="hide"></div>
-    <div id="pane-gasolio" class="hide"></div>
+    <div id="pane-carburanti" class="hide"></div>
     <div id="pane-sito" class="hide"></div>
     <div id="pane-gantt" class="hide"></div>
     <div id="pane-dash" class="hide"></div>
@@ -463,7 +463,7 @@ const TABS = {
   compila:{ic:"📝",l:"Lavori",who:p=>!isReadOnly()},
   ore:{ic:"⏱️",l:"Ore",who:p=>!isReadOnly()},
   macchine:{ic:"🚜",l:"Macchine",who:p=>!isReadOnly()},
-  gasolio:{ic:"⛽",l:"Gasolio",who:p=>!isReadOnly()},
+  carburanti:{ic:"⛽",l:"Carburanti",who:p=>!isReadOnly()},
   sito:{ic:"📍",l:"Il mio sito",who:p=>!isReadOnly()&&!isSuper()&&p.sito_id},
   gantt:{ic:"📅",l:"Gantt",who:p=>true},
   dash:{ic:"📊",l:"Dashboard",who:p=>isSuper()||isReadOnly()},
@@ -479,11 +479,11 @@ async function show(k){
   if(CURRENT_TAB==="setup" && k!=="setup") await setupAutoSalva();
   CURRENT_TAB=k;
   $$(".tab").forEach(b=>b.classList.toggle("on",b.dataset.t===k));
-  ["compila","ore","macchine","gasolio","sito","gantt","dash","setup"].forEach(p=>$("#pane-"+p).classList.toggle("hide",p!==k));
+  ["compila","ore","macchine","carburanti","sito","gantt","dash","setup"].forEach(p=>$("#pane-"+p).classList.toggle("hide",p!==k));
   $(".wrap").classList.toggle("wide",k==="gantt");
   $(".wrap").classList.toggle("dashw",k==="dash");
-  renderSitoBar(k==="compila"||k==="gasolio"||k==="ore"||k==="macchine");
-  ({compila:rCompila,ore:rOre,macchine:rMacchine,gasolio:rGasolio,sito:rSito,gantt:rGantt,dash:rDash,setup:rSetup})[k]();
+  renderSitoBar(k==="compila"||k==="carburanti"||k==="ore"||k==="macchine");
+  ({compila:rCompila,ore:rOre,macchine:rMacchine,carburanti:rCarburanti,sito:rSito,gantt:rGantt,dash:rDash,setup:rSetup})[k]();
 }
 
 /* ---------------- MOTORE COSTI (logica validata) ----------------
@@ -491,7 +491,7 @@ async function show(k){
    - Piantumazione: piante cumulative (ultimo valore) / previste
    - materiali = Σ importi attività × frazione avanzamento
    - ore uomo = ore × tariffa; macchine = presenza × tariffa/g
-   - gasolio = litri × prezzo sito; terzisti = ore × tariffa
+   - carburanti = litri gasolio × prezzo + litri benzina × prezzo
    - ha completati = ettari_totali × Σ(peso × %)/10000           */
 /* ---------------- DATI PER SITO + MOTORE COSTI GERARCHICO (Blocco 2) ---------------- */
 async function datiSito(sito_id){
@@ -499,7 +499,7 @@ async function datiSito(sito_id){
   const [si_int, sc, av, ap, ou, mg, ga, ri] = await Promise.all([
     q("sito_interventi"), q("sito_categorie"),
     q("avanzamenti"), q("avanz_piante"), q("ore_uomo"),
-    q("macchine_giorno"), q("gasolio"), q("ritardi"),
+    q("macchine_giorno"), q("carburanti"), q("ritardi"),
   ]);
   const siIds = (si_int.data||[]).map(x=>x.id);
   let sv = [];
@@ -510,7 +510,7 @@ async function datiSito(sito_id){
   (si_int.data||[]).forEach(x=>pulisciDate(x,["scadenza","data_inizio"]));
   return {sito_interventi:si_int.data||[], sito_categorie:sc.data||[], sottovoci:sv,
           avanzamenti:av.data||[], avanz_piante:ap.data||[], ore_uomo:ou.data||[],
-          macchine_giorno:mg.data||[], gasolio:ga.data||[], ritardi:ri.data||[]};
+          macchine_giorno:mg.data||[], carburanti:ga.data||[], ritardi:ri.data||[]};
 }
 const MAXV = arr => arr.length ? Math.max(...arr) : 0;
 /* ---- dati mancanti (cartello giallo) e bandierina rossa ---- */
@@ -601,6 +601,7 @@ const budgetEffDi = (si,intv) => intv.tipo==="piante"
 function calcSito(sito_id, D){
   const sito = DB.siti.find(s=>s.id===sito_id) || {};
   const prezzoGasolio = DB.par?.prezzo_gasolio || 0;
+  const prezzoBenzina = DB.par?.prezzo_benzina || 0;
   const tariffaOp = id => (DB.operai.find(o=>o.id===id)||{}).tariffa_ora || 0;
   const tariffaMa = id => (DB.macchine.find(m=>m.id===id)||{}).tariffa_giorno || 0;
   const attivi = D.sito_interventi.filter(si=>si.attivo && !si.annullato);
@@ -666,16 +667,18 @@ function calcSito(sito_id, D){
     ore+=p.ore;
   }
   const macchine=D.macchine_giorno.filter(m=>m.presente).reduce((s,m)=>s+tariffaMa(m.macchina_id),0);
-  const gasolio=D.gasolio.reduce((s,g)=>s+(+g.litri||0),0)*prezzoGasolio;
+  // i due carburanti hanno prezzi diversi: si valorizzano riga per riga
+  const carburanti=D.carburanti.reduce((s,g)=>
+    s+(+g.litri_gasolio||0)*prezzoGasolio+(+g.litri_benzina||0)*prezzoBenzina,0);
   const gg_fermo=D.ritardi.reduce((s,r)=>s+(+r.giorni||0),0);
-  const interno=cIn+ore+macchine+gasolio, terzisti=cTe, totale=interno+terzisti, budgetTot=bIn+bTe;
+  const interno=cIn+ore+macchine+carburanti, terzisti=cTe, totale=interno+terzisti, budgetTot=bIn+bTe;
   // ---- segnalazioni ----
   const nMancanti = perInt.filter(p=>p.mancanti.length).length + (VUOTO(sito.ettari_totali)?1:0);
   const nRosse    = perInt.filter(p=>p.daVerificare).length;
   const lotti     = [...new Set(D.sito_interventi.filter(x=>x.attivo&&!x.annullato).map(x=>x.lotto||"Intero sito"))];
   return {avz,avzPesato,pesoTot,ettari,perInt,perCat,perPz,gg_fermo,nMancanti,nRosse,lotti,budTot,
     ettariMancanti:VUOTO(sito.ettari_totali),
-    costi:{costoMatInhouse:cIn,costoMatTerzi:cTe,ore,macchine,gasolio,interno,terzisti,totale,budgetTot,budgetInhouse:bIn,budgetTerzi:bTe}};
+    costi:{costoMatInhouse:cIn,costoMatTerzi:cTe,ore,macchine,carburanti,interno,terzisti,totale,budgetTot,budgetInhouse:bIn,budgetTerzi:bTe}};
 }
 
 /* ---------------- COMPILAZIONE GIORNALIERA ---------------- */
@@ -690,7 +693,7 @@ function mieiSiti(){
 function sitoCorrente(){ return SITO_SEL || (mieiSiti()[0]&&mieiSiti()[0].id) || P.sito_id; }
 function reRenderCurrent(){
   if(CURRENT_TAB==="compila") rCompila();
-  else if(CURRENT_TAB==="gasolio") rGasolio();
+  else if(CURRENT_TAB==="carburanti") rCarburanti();
   else if(CURRENT_TAB==="ore") rOre();
   else if(CURRENT_TAB==="macchine") rMacchine();
 }
@@ -727,7 +730,7 @@ function confermaSito(sito_id,data){
     m.querySelector("#m-no").onclick=()=>{m.classList.add("hide");res(false)};
   });
 }
-/* ---------------- COMPILA / GASOLIO / SITO / DASH (ricostruiti nei Blocchi 4-5) ---------------- */
+/* ---------------- COMPILA / CARBURANTI / SITO / DASH (ricostruiti nei Blocchi 4-5) ---------------- */
 function stubPane(pane,titolo,blocco){
   $(pane).innerHTML=`<div class="card"><h2>${titolo}</h2>
     <p class="muted">Questa sezione viene ricostruita sul nuovo modello gerarchico nel <b>${blocco}</b>.
@@ -992,9 +995,9 @@ async function rSito(){
      ${costRow("Conto terzi (preventivi)",c.costoMatTerzi)}
      ${costRow("Ore personale",c.ore)}
      ${costRow("Macchine",c.macchine)}
-     ${costRow("Gasolio",c.gasolio)}
+     ${costRow("Carburanti",c.carburanti)}
      ${costRow("TOTALE",c.totale,true)}
-     <p class="muted" style="margin-top:8px">Budget pianificato (materiali + preventivi): <b>${eur(c.budgetTot)}</b>. Ore, macchine e gasolio sono consuntivo che si aggiunge al budget.</p>
+     <p class="muted" style="margin-top:8px">Budget pianificato (materiali + preventivi): <b>${eur(c.budgetTot)}</b>. Ore, macchine e carburanti sono consuntivo che si aggiunge al budget.</p>
      <p class="muted">Giorni fermo cumulati: <b>${R.gg_fermo}</b></p>
    </div>`;
 }
@@ -1421,7 +1424,7 @@ async function rDash(){
    ${renderScadenzeRaggruppate(scadAll,!isReadOnly())}
    <div class="card"><h2>Consolidamento ${DB.siti.length} siti</h2><div class="scroll-x">
      <table class="grid"><tr><th>Sito</th><th>Avz.</th><th>Ettari</th><th>Interno</th><th>Conto terzi</th><th>Totale</th><th>Budget</th></tr>${cons}</table>
-   </div><p class="muted" style="margin-top:8px">Il totale include ore/macchine/gasolio; il budget è solo materiali e preventivi.</p></div>
+   </div><p class="muted" style="margin-top:8px">Il totale include ore/macchine/carburanti; il budget è solo materiali e preventivi.</p></div>
    <div class="card"><h2>Heatmap avanzamento (sito × ${VISTA==="perizia"?"categoria perizia":"categoria"})</h2><div class="scroll-x">${heat}</div></div>
    <div class="dash-due">
    <div class="card"><h2>Efficienza dei siti a confronto</h2>
@@ -1434,8 +1437,8 @@ async function rDash(){
      <button class="btn btn-g btn-sm" id="csv-cons" style="margin-bottom:8px">consuntivo per sito</button>
      <button class="btn btn-o btn-sm" id="csv-ore" style="margin-bottom:8px">dettaglio ore uomo</button>
      <button class="btn btn-o btn-sm" id="csv-mac" style="margin-bottom:8px">dettaglio macchine</button>
-     <button class="btn btn-o btn-sm" id="csv-gas" style="margin-bottom:8px">dettaglio gasolio</button></div>
-     <p class="muted" style="margin-top:6px">Il <b>consuntivo</b> riporta per ogni sito ore personale, macchine e gasolio in euro, con il totale. I ritardi sono in giorni di fermo: nel modello non hanno un valore in euro.</p></div>`}
+     <button class="btn btn-o btn-sm" id="csv-carb" style="margin-bottom:8px">dettaglio carburanti</button></div>
+     <p class="muted" style="margin-top:6px">Il <b>consuntivo</b> riporta per ogni sito ore personale, macchine e carburanti in euro, con il totale. I ritardi sono in giorni di fermo: nel modello non hanno un valore in euro.</p></div>`}
    </div>`;
   const csvOut=(nome,righe)=>{
     if(righe.length<2) return toast("Nessun dato da esportare");
@@ -1466,16 +1469,16 @@ async function rDash(){
       }));
     csvOut("dettaglio_macchine.csv",r);
   };
-  if($("#csv-gas")) $("#csv-gas").onclick=()=>{
-    const pz=DB.par?.prezzo_gasolio||0;
-    const r=[["data","sito","litri","prezzo_litro_eur","costo_eur","operatore"]];
-    all.forEach(({sito,D})=>(D.gasolio||[]).slice()
+  if($("#csv-carb")) $("#csv-carb").onclick=()=>{
+    const pg=DB.par?.prezzo_gasolio||0, pb=DB.par?.prezzo_benzina||0;
+    const r=[["data","sito","litri_gasolio","prezzo_gasolio_eur","litri_benzina","prezzo_benzina_eur","costo_eur","operatore"]];
+    all.forEach(({sito,D})=>(D.carburanti||[]).slice()
       .sort((a,b)=>String(a.data).localeCompare(String(b.data)))
       .forEach(g=>{
-        const l=+g.litri||0;
-        r.push([Q(g.data),Q(sito.nome),l,pz,Math.round(l*pz*100)/100,Q(g.operatore||"")]);
+        const lg=+g.litri_gasolio||0, lb=+g.litri_benzina||0;
+        r.push([Q(g.data),Q(sito.nome),lg,pg,lb,pb,Math.round((lg*pg+lb*pb)*100)/100,Q(g.operatore||"")]);
       }));
-    csvOut("dettaglio_gasolio.csv",r);
+    csvOut("dettaglio_carburanti.csv",r);
   };
   $$("[data-par]").forEach(i=>i.onchange=()=>salvaBudgetManuale(i.dataset.par, +i.value||0));
   $$("[data-csv]").forEach(b=>b.onclick=()=>exportCsv(b.dataset.csv));
@@ -1489,14 +1492,14 @@ async function rDash(){
     dlCsv("consolidamento_interventi.csv",rows.map(r=>r.join(",")).join("\n"));
   };
   if($("#csv-cons"))$("#csv-cons").onclick=()=>{
-    const rows=[["sito","ore_personale_eur","macchine_eur","gasolio_eur","totale_consuntivo_eur","ritardi_giorni"]];
-    let tOre=0,tMac=0,tGas=0,tTot=0,tGg=0;
+    const rows=[["sito","ore_personale_eur","macchine_eur","carburanti_eur","totale_consuntivo_eur","ritardi_giorni"]];
+    let tOre=0,tMac=0,tCarb=0,tTot=0,tGg=0;
     all.forEach(({sito,R})=>{
-      const c=R.costi, tot=c.ore+c.macchine+c.gasolio;
-      tOre+=c.ore; tMac+=c.macchine; tGas+=c.gasolio; tTot+=tot; tGg+=R.gg_fermo;
-      rows.push([`"${sito.nome.replace(/"/g,'""')}"`,Math.round(c.ore),Math.round(c.macchine),Math.round(c.gasolio),Math.round(tot),R.gg_fermo]);
+      const c=R.costi, tot=c.ore+c.macchine+c.carburanti;
+      tOre+=c.ore; tMac+=c.macchine; tCarb+=c.carburanti; tTot+=tot; tGg+=R.gg_fermo;
+      rows.push([`"${sito.nome.replace(/"/g,'""')}"`,Math.round(c.ore),Math.round(c.macchine),Math.round(c.carburanti),Math.round(tot),R.gg_fermo]);
     });
-    rows.push(['"TOTALE"',Math.round(tOre),Math.round(tMac),Math.round(tGas),Math.round(tTot),tGg]);
+    rows.push(['"TOTALE"',Math.round(tOre),Math.round(tMac),Math.round(tCarb),Math.round(tTot),tGg]);
     dlCsv("consuntivo_per_sito.csv",rows.map(r=>r.join(",")).join("\n"));
   };
 }
@@ -1737,27 +1740,28 @@ async function cancellaOra(sito,data,row){
   row.remove();
 }
 
-/* ---------------- GASOLIO (livello sito) ---------------- */
-const REFERENTI_GASOLIO = ["Biagio Campo","Francesco Mastrandrea","Eristo Tripoli"];
-function operatoriGasolio(){
-  const l=[...DB.operai.map(o=>o.nome), ...REFERENTI_GASOLIO];
+/* ---------------- CARBURANTI (livello sito) ---------------- */
+const REFERENTI_CARBURANTI = ["Biagio Campo","Francesco Mastrandrea","Eristo Tripoli"];
+function operatoriCarburanti(){
+  const l=[...DB.operai.map(o=>o.nome), ...REFERENTI_CARBURANTI];
   if(P&&P.nome && !l.includes(P.nome)) l.push(P.nome);   // chi compila c'è sempre
   return [...new Set(l.filter(Boolean))].sort((a,b)=>a.localeCompare(b,"it"));
 }
-function rGasolio(){
+function rCarburanti(){
   const sito=sitoCorrente();
-  $("#pane-gasolio").innerHTML=`
-  <div class="card"><h2>⛽ Gasolio</h2>
-    <p class="muted">Dichiarazione giornaliera obbligatoria per il sito.</p>
+  $("#pane-carburanti").innerHTML=`
+  <div class="card"><h2>⛽ Carburanti</h2>
+    <p class="muted">Dichiarazione giornaliera obbligatoria per il sito. Un rifornimento può contenere entrambi i carburanti: compila il campo che serve e lascia vuoto l'altro.</p>
     <div class="field"><label>Data</label><input type="date" id="g-data" ${DATA_ATTR} value="${oggi()}"></div>
     <button class="btn btn-g" id="g-zero" style="width:100%">Nessun rifornimento oggi</button>
     <hr style="margin:16px 0;border:none;border-top:1px solid #E3E7DD">
     <div class="row2">
-      <div class="field"><label>Litri prelevati</label><input type="number" id="g-litri" placeholder="litri"></div>
-      <div class="field"><label>Operatore</label><select id="g-op">${
-        operatoriGasolio().map(nm=>`<option value="${esc(nm)}" ${nm===P.nome?"selected":""}>${esc(nm)}</option>`).join("")
-      }</select></div>
+      <div class="field"><label>Litri gasolio</label><input type="number" step="0.01" id="g-litri" placeholder="litri"></div>
+      <div class="field"><label>Litri benzina</label><input type="number" step="0.01" id="g-litri-b" placeholder="litri"></div>
     </div>
+    <div class="field"><label>Operatore</label><select id="g-op">${
+      operatoriCarburanti().map(nm=>`<option value="${esc(nm)}" ${nm===P.nome?"selected":""}>${esc(nm)}</option>`).join("")
+    }</select></div>
     <button class="btn btn-p" id="g-invia" style="width:100%">Registra rifornimento</button>
     <div class="err" id="g-err"></div>
   </div>`;
@@ -1765,17 +1769,22 @@ function rGasolio(){
   $("#g-zero").onclick=async()=>{
     if(!dataValida($("#g-data").value)) return toast("Data non valida: controlla l'anno.");
     if(!await confermaSito(gsito(),$("#g-data").value)) return;
-    const {error}=await sb.from("gasolio").insert({sito_id:gsito(),data:$("#g-data").value,litri:0,operatore:$("#g-op").value||P.nome});
+    const {error}=await sb.from("carburanti").insert({sito_id:gsito(),data:$("#g-data").value,
+      litri_gasolio:0,litri_benzina:0,operatore:$("#g-op").value||P.nome});
     if(error)return toast("Errore di salvataggio");toast("Registrato: nessun rifornimento ✓");
   };
   $("#g-invia").onclick=async()=>{
     $("#g-err").style.display="none";
-    const litri=+$("#g-litri").value||0;
-    if(litri<=0)return err("#g-err","Inserisci i litri, oppure usa «Nessun rifornimento oggi».");
+    const litriG=+$("#g-litri").value||0, litriB=+$("#g-litri-b").value||0;
+    if(litriG<=0 && litriB<=0)
+      return err("#g-err","Inserisci i litri di gasolio o di benzina, oppure usa «Nessun rifornimento oggi».");
     if(!dataValida($("#g-data").value)) return toast("Data non valida: controlla l'anno.");
     if(!await confermaSito(gsito(),$("#g-data").value)) return;
-    const {error}=await sb.from("gasolio").insert({sito_id:gsito(),data:$("#g-data").value,litri,operatore:$("#g-op").value||P.nome});
-    if(error)return toast("Errore di salvataggio");toast("Rifornimento registrato ✓");$("#g-litri").value="";
+    const {error}=await sb.from("carburanti").insert({sito_id:gsito(),data:$("#g-data").value,
+      litri_gasolio:litriG,litri_benzina:litriB,operatore:$("#g-op").value||P.nome});
+    if(error)return toast("Errore di salvataggio");
+    toast("Rifornimento registrato ✓");
+    $("#g-litri").value="";$("#g-litri-b").value="";
   };
 }
 
@@ -1839,8 +1848,13 @@ const SETUP = {
  async siti(){
   const {data}= await sb.from("siti").select("*").order("id");
   $("#setup-body").innerHTML=`<div class="card"><h2>Parametri aziendali</h2>
-   <div class="field"><label>Prezzo gasolio €/litro (unico per tutta l'azienda)</label>
-   <input type="number" step="0.01" id="par-pg" value="${DB.par?.prezzo_gasolio??0}"></div>
+   <p class="muted">Prezzi unici per tutta l'azienda: valorizzano i litri registrati nella scheda Carburanti.</p>
+   <div class="row2">
+     <div class="field"><label>Prezzo gasolio €/litro</label>
+     <input type="number" step="0.01" id="par-pg" value="${DB.par?.prezzo_gasolio??0}"></div>
+     <div class="field"><label>Prezzo benzina €/litro</label>
+     <input type="number" step="0.01" id="par-pb" value="${DB.par?.prezzo_benzina??0}"></div>
+   </div>
    <button class="btn btn-p" id="par-save">Salva parametri</button></div>
    <div class="card"><h2>Siti — ettari e avvio lavori</h2>
    <p class="muted">La data di avvio lavori è la base per calcolare il tempo residuo alle scadenze. La <b>sigla</b> è il nome breve usato in dashboard, Gantt e segnalazioni, dove lo spazio è poco: in compilazione e nella conferma resta sempre il nome completo. Il <b>comune</b> decide quali macchine si vedono in compilazione: solo quelle dello stesso comune.</p>
@@ -1854,10 +1868,11 @@ const SETUP = {
    </div>`).join("")}
    <button class="btn btn-p" id="s-save">Salva siti</button></div>`;
   const salvaSiti=async(silenzioso)=>{
-    const v=+$("#par-pg").value||0;
-    const {error}=await sb.from("parametri").upsert({chiave:"prezzo_gasolio",valore:v});
+    const v=+$("#par-pg").value||0, vb=+$("#par-pb").value||0;
+    const {error}=await sb.from("parametri").upsert([
+      {chiave:"prezzo_gasolio",valore:v},{chiave:"prezzo_benzina",valore:vb}]);
     if(error)return toast("Errore di salvataggio");
-    DB.par.prezzo_gasolio=v;
+    DB.par.prezzo_gasolio=v; DB.par.prezzo_benzina=vb;
     const badS=dateErrate($$("#setup-body .s-avvio"));
     if(badS.length){ badS[0].scrollIntoView({block:"center"}); return toast("Data di avvio non valida: usa un anno tra "+ANNO_MIN+" e "+ANNO_MAX+". Niente salvato."); }
     for(const r of $$("#setup-body [data-id]"))
