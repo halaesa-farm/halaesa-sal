@@ -343,6 +343,14 @@ details.pan .pan-b{padding:0 16px 16px}
 }
 input[type=date]:invalid,input.bad{border-color:var(--red);background:#FDF1EF}
 /* ---- sotto-aree: mappa e disegno ---- */
+.sa-cerca{display:grid;grid-template-columns:1fr auto auto;gap:8px;margin-bottom:8px}
+@media(max-width:620px){.sa-cerca{grid-template-columns:1fr auto}.sa-cerca .sa-gps{grid-column:1/-1}}
+.sa-ris{margin-bottom:10px}
+.sa-ris button{display:block;width:100%;text-align:left;background:var(--white);
+  border:1px solid var(--line);border-radius:var(--r-s);padding:9px 11px;margin-bottom:5px;font-size:13px}
+.sa-ris button:hover{background:#F3F6EF;border-color:var(--moss)}
+.sa-ris b{display:block;color:var(--forest-d)}
+.sa-ris span{font-size:11.5px;color:var(--mut)}
 .sa-map{height:430px;border:1px solid var(--line);border-radius:var(--r-s);overflow:hidden;
   margin-bottom:10px;background:#EEF1EA}
 .sa-map.draw{cursor:crosshair}
@@ -1980,6 +1988,34 @@ function daGeoJSON(g){
   return pts;
 }
 
+/* ---- ricerca di un luogo: l'ortofoto da sola e' indistinguibile,
+   serve un modo per arrivare sul campo senza vagare. Nominatim
+   (OpenStreetMap) copre discretamente contrade e toponimi rurali. ---- */
+const GEOCODER="https://nominatim.openstreetmap.org/search";
+/* coordinate incollate a mano o prese da un link di Google Maps:
+   e' la via di scampo quando la contrada non esiste nelle mappe pubbliche */
+function coordinateDa(testo){
+  const t=String(testo||"").trim();
+  const g=t.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)              // .../@37.98,14.23,17z
+       || t.match(/[?&]q=(-?\d+\.\d+),\s*(-?\d+\.\d+)/)       // ...?q=37.98,14.23
+       || t.match(/^(-?\d{1,2}[.,]\d+)[\s,;]+(-?\d{1,3}[.,]\d+)$/);
+  if(!g) return null;
+  const lat=parseFloat(String(g[1]).replace(",",".")), lng=parseFloat(String(g[2]).replace(",","."));
+  if(!isFinite(lat)||!isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180) return null;
+  return [lat,lng];
+}
+async function cercaLuogo(testo, comune){
+  const u=new URL(GEOCODER);
+  u.searchParams.set("q", comune ? `${testo}, ${comune}, Sicilia` : `${testo}, Sicilia`);
+  u.searchParams.set("format","jsonv2");
+  u.searchParams.set("countrycodes","it");
+  u.searchParams.set("accept-language","it");
+  u.searchParams.set("limit","6");
+  const r=await fetch(u.toString(),{headers:{Accept:"application/json"}});
+  if(!r.ok) throw new Error("geocoder "+r.status);
+  return await r.json();
+}
+
 let SA=null;   // stato della mappa del Setup
 
 async function mappaAree(sid){
@@ -1995,10 +2031,86 @@ async function mappaAree(sid){
   let avvisato=false;
   wms.on("tileerror",()=>{ if(avvisato) return; avvisato=true;
     toast("Ortofoto SITR non raggiungibile: puoi comunque rivedere le aree già salvate"); });
-  SA={map,sid,aree,strati:[],modo:null,punti:[],linea:null,vertici:[],target:null,bozza:null};
+  SA={map,sid,aree,strati:[],modo:null,punti:[],linea:null,vertici:[],target:null,bozza:null,segno:null};
   inquadra();
+  collegaRicerca();
   map.on("click",e=>{ if(SA.modo) puntoDisegno(e.latlng); });
   pitturaAree(); barraAree(); elencoAree();
+}
+function collegaRicerca(){
+  const inp=$("#a-q"), btn=$("#a-vai"), btn2=$("#a-gps"), box=$("#a-ris");
+  if(!inp||!btn||!btn2||!box) return;
+  const sito=DB.siti.find(x=>x.id===SA.sid)||{};
+  const comune=(DB.comuni.find(c=>c.id===sito.comune_id)||{}).nome||"";
+  const vaiA=(lat,lng,bb,precisione)=>{
+    if(bb) SA.map.fitBounds([[+bb[0],+bb[2]],[+bb[1],+bb[3]]],{maxZoom:17});
+    else SA.map.setView([lat,lng],17);
+    // un segno rosso dove siamo atterrati: senza, in mezzo al verde ci si perde
+    if(SA.segno) SA.map.removeLayer(SA.segno);
+    const g=L.layerGroup().addTo(SA.map);
+    L.circleMarker([lat,lng],{radius:9,color:"#C0392B",weight:3,
+      fillColor:"#C0392B",fillOpacity:.25}).addTo(g);
+    // il cerchio dice quanto fidarsi del punto: un fix da wifi puo' sbagliare di km
+    if(precisione>0) L.circle([lat,lng],{radius:precisione,color:"#C0392B",weight:1,
+      dashArray:"4,4",fillColor:"#C0392B",fillOpacity:.06}).addTo(g);
+    SA.segno=g;
+    box.innerHTML="";
+  };
+  const dovMiTrovo=()=>{
+    if(!navigator.geolocation) return toast("Questo dispositivo non fornisce la posizione");
+    if(!window.isSecureContext)
+      return toast("La posizione funziona solo se l'app è aperta in https");
+    btn2.disabled=true; const testo=btn2.textContent; btn2.textContent="Cerco la posizione…";
+    const fine=()=>{ btn2.disabled=false; btn2.textContent=testo; };
+    navigator.geolocation.getCurrentPosition(p=>{
+      fine();
+      const pr=Math.round(p.coords.accuracy||0);
+      vaiA(p.coords.latitude,p.coords.longitude,null,pr);
+      toast(pr>150 ? `Posizione approssimativa (±${pr} m): controlla di essere sul campo giusto`
+                   : `Sei qui (±${pr} m) ✓`);
+    }, e=>{
+      fine();
+      const m={1:"Permesso negato: autorizza la posizione nelle impostazioni del browser",
+               2:"Posizione non disponibile in questo momento",
+               3:"Il dispositivo non ha trovato la posizione in tempo: riprova all'aperto"};
+      box.innerHTML=`<p class="muted">${esc(m[e.code]||"Non sono riuscito a leggere la posizione")}. In alternativa scrivi la contrada, o incolla delle coordinate.</p>`;
+    }, {enableHighAccuracy:true, timeout:12000, maximumAge:30000});
+  };
+  // la strada che funziona sempre, scritta dove serve invece che in un manuale
+  const comeFare = (premessa) => `<p class="muted" style="font-size:12px;margin-top:6px">
+    ${premessa} Apri il campo su Google Maps, fai tasto destro sul punto (o tieni premuto, sul telefono),
+    tocca le coordinate per copiarle e incollale qui sopra: la mappa ci va esatta.
+    Se invece sei sul posto, usa <b>Dove mi trovo</b>.</p>`;
+  const cerca=async()=>{
+    const t=inp.value.trim();
+    if(!t) return;
+    const c=coordinateDa(t);
+    if(c){ vaiA(c[0],c[1]); return toast("Mappa spostata sulle coordinate ✓"); }
+    box.innerHTML=`<p class="muted">Cerco…</p>`;
+    let ris;
+    try{ ris=await cercaLuogo(t,comune); }
+    catch(e){ box.innerHTML=comeFare("Servizio di ricerca non raggiungibile."); return; }
+    if(!ris.length){ box.innerHTML=comeFare(`Nessun risultato per «${esc(t)}»${comune?` in ${esc(comune)}`:""}.`); return; }
+    // molte contrade non sono mappate, e capita che il risultato sia in un altro
+    // comune con un nome simile: va segnalato, non nascosto
+    box.innerHTML=ris.map((r,i)=>{
+      const nome=String(r.display_name).split(",")[0];
+      const resto=String(r.display_name).split(",").slice(1,4).join(",").trim();
+      const fuori=comune && !String(r.display_name).toLowerCase().includes(comune.toLowerCase());
+      return `<button type="button" data-i="${i}">
+        <b>${esc(nome)}${fuori?` <span class="flag-y">fuori da ${esc(comune)}</span>`:""}</b>
+        <span>${esc(resto)}${r.type?" · "+esc(r.type):""}</span></button>`;
+    }).join("")
+      +`<p class="muted" style="font-size:11px;margin-top:4px">Ricerca luoghi: dati © collaboratori OpenStreetMap, servizio Nominatim. Le contrade rurali spesso non vi compaiono.</p>`
+      +comeFare("Non è quello giusto?");
+    box.querySelectorAll("button").forEach(b=>b.onclick=()=>{
+      const r=ris[+b.dataset.i];
+      vaiA(+r.lat,+r.lon,r.boundingbox);
+    });
+  };
+  btn.onclick=cerca;
+  btn2.onclick=dovMiTrovo;
+  inp.onkeydown=e=>{ if(e.key==="Enter"){ e.preventDefault(); cerca(); } };
 }
 function inquadra(){
   const {map,aree,sid}=SA, sito=DB.siti.find(x=>x.id===sid)||{};
@@ -2254,10 +2366,21 @@ const SETUP = {
  async aree(){
   const sid=+($("#a-sito")?.value||DB.siti[0].id);
   SETUP_SALVA=null;   // qui ogni azione salva da sé: niente da accodare
+  const comuneSito=(DB.comuni.find(c=>c.id===(DB.siti.find(x=>x.id===sid)||{}).comune_id)||{}).nome;
+  const segnaposto=comuneSito
+    ? `Contrada, località o indirizzo — cerco in ${comuneSito}`
+    : `Contrada, località o indirizzo (il sito non ha un comune assegnato)`;
   $("#setup-body").innerHTML=`<div class="card"><h2>Sotto-aree</h2>
     <div class="field"><label>Sito</label><select id="a-sito">${
       DB.siti.map(x=>`<option value="${x.id}" ${x.id===sid?"selected":""}>${esc(x.nome)}</option>`).join("")}</select></div>
-    <p class="muted">Disegna sulla ortofoto le porzioni in cui il sito è diviso: il FM sceglierà la sotto-area prima di registrare l'avanzamento. Gli ettari si calcolano dal disegno e fanno da peso — una sotto-area di 20 ha conta il doppio di una da 10. Le lavorazioni entrano nelle sotto-aree solo se marcate «per sotto-area» in <b>Interventi e sotto-voci</b>.</p>
+    <p class="muted">Prima trova il campo con la ricerca qui sotto, poi disegna le porzioni in cui il sito è diviso. Gli ettari si calcolano dal disegno e fanno da peso — una sotto-area di 20 ha conta il doppio di una da 10. Le lavorazioni entrano nelle sotto-aree solo se marcate «per sotto-area» in <b>Interventi e sotto-voci</b>.</p>
+    <p class="muted" style="font-size:11.5px">Nella casella puoi scrivere una contrada o un indirizzo, oppure incollare direttamente delle coordinate o un link di Google Maps. Una volta disegnata la prima area, la mappa si riaprirà sempre su questo sito.</p>
+    <div class="sa-cerca">
+      <input id="a-q" placeholder="${esc(segnaposto)}">
+      <button class="btn btn-o btn-sm" id="a-vai">Cerca</button>
+      <button class="btn btn-g btn-sm sa-gps" id="a-gps" title="centra la mappa sulla tua posizione">📍 Dove mi trovo</button>
+    </div>
+    <div class="sa-ris" id="a-ris"></div>
     <div id="a-map" class="sa-map"><p class="muted" style="padding:14px">Carico la mappa…</p></div>
     <p class="sa-credito">${SITR_CREDITO}</p>
     <div class="sa-bar" id="a-bar"></div>
