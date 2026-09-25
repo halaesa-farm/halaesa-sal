@@ -363,6 +363,8 @@ input[type=date]:invalid,input.bad{border-color:var(--red);background:#FDF1EF}
 .sa-nuova{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;
   background:#F3F6EF;border:1px solid var(--moss);border-radius:var(--r-s);padding:10px;margin-bottom:10px}
 .leaflet-container{font:inherit}
+.sa-map-c{height:260px;border-radius:10px;overflow:hidden;margin-top:10px}
+@media(min-width:1000px){.sa-map-c{height:340px}}
 .sa-credito{font-size:11px;line-height:1.45;color:var(--mut);margin:-4px 0 12px}
 .sa-credito a{color:var(--forest)}
 .leaflet-control-attribution{font-size:10.5px}
@@ -1678,6 +1680,8 @@ async function rCompila(){
       ${divise.length?aree.map(a=>`<option value="${a.id}" ${SA_SEL===a.id?"selected":""}>${esc(a.nome)} — ${ha(a.ettari)}</option>`).join(""):""}
       ${diSito.length?`<option value="sito" ${SA_SEL==="sito"?"selected":""}>Intero sito — lavorazioni non divise</option>`:""}
     </select>
+    ${divise.length?`<div id="c-samap" class="sa-map sa-map-c"><p class="muted" style="padding:12px">Carico la mappa…</p></div>
+      <p class="muted" style="font-size:11.5px;margin-top:6px">Tocca la zona sulla mappa per scegliere dove stai lavorando. In verde quella selezionata.</p>`:""}
     ${!divise.length?`<p class="muted" style="margin-top:8px"><span class="flag-y">⚠️</span> Nessuna lavorazione di questo sito è marcata «per sotto-area»: si compila tutto a livello di sito. Lo imposta il super user nel Setup.</p>`:""}
   </div>`;
   $("#pane-compila").innerHTML = `
@@ -1712,8 +1716,41 @@ async function rCompila(){
     SA_SEL = e.target.value==="sito" ? "sito" : +e.target.value;
     rCompila();   // cambia l'ambito: si ricarica quello che risulta gia' registrato lì
   };
+  if($("#c-samap")) mappaScelta(aree, sito);
   $("#c-invia").onclick=inviaCompilazione;
 }
+/* ---- mappa della compilazione: si tocca la zona invece di cercarla a menù ---- */
+let MS=null;
+async function mappaScelta(aree, sito){
+  const box=$("#c-samap"); if(!box||!aree.length) return;
+  try{ await caricaLeaflet(); }catch(e){ box.innerHTML='<p class="muted" style="padding:12px">Mappa non disponibile: usa il menù qui sopra.</p>'; return; }
+  if(MS){ try{ MS.remove(); }catch(e){} MS=null; }
+  box.innerHTML="";
+  MS=L.map(box,{maxZoom:20,attributionControl:true,zoomControl:true});
+  L.tileLayer.wms(SITR_WMS,{layers:"0",format:"image/jpeg",version:"1.3.0",
+    transparent:false,maxZoom:20,attribution:SITR_ATTR}).addTo(MS);
+  const tutti=[];
+  aree.forEach(a=>{
+    const pts=daGeoJSON(a.geom); if(pts.length<3) return;
+    tutti.push(...pts);
+    const scelta = SA_SEL===a.id;
+    const p=L.polygon(pts,{
+      color: scelta?"#1F5C2E":"#FAFAF7", weight: scelta?4:2,
+      fillColor: scelta?"#8CBF66":"#1A2418", fillOpacity: scelta?0.45:0.12
+    }).addTo(MS);
+    p.bindTooltip(`${a.nome} · ${ha(a.ettari)}`,{permanent:scelta,direction:"center",className:"sa-lab"});
+    p.on("click",()=>{ if(SA_SEL!==a.id){ SA_SEL=a.id; rCompila(); } });
+    p.on("mouseover",()=>{ if(SA_SEL!==a.id) p.setStyle({fillOpacity:0.3}); });
+    p.on("mouseout", ()=>{ if(SA_SEL!==a.id) p.setStyle({fillOpacity:0.12}); });
+  });
+  if(tutti.length) MS.fitBounds(L.latLngBounds(tutti),{padding:[20,20],maxZoom:19});
+  else {
+    const st=DB.siti.find(x=>x.id===sito)||{};
+    if(st.mappa_lat!=null) MS.setView([+st.mappa_lat,+st.mappa_lng], st.mappa_zoom||17);
+  }
+  setTimeout(()=>{ try{ MS.invalidateSize(); }catch(e){} }, 250);
+}
+
 async function inviaCompilazione(){
   $("#c-err").style.display="none";
   const sito=CC.sito, data=$("#c-data").value, comp=$("#c-comp").value.trim()||P.nome;
@@ -2033,8 +2070,8 @@ async function mappaAree(sid){
     toast("Ortofoto SITR non raggiungibile: puoi comunque rivedere le aree già salvate"); });
   SA={map,sid,aree,strati:[],modo:null,punti:[],linea:null,vertici:[],target:null,bozza:null,segno:null};
   inquadra();
-  collegaRicerca();
-  map.on("click",e=>{ if(SA.modo) puntoDisegno(e.latlng); });
+  collegaImport();
+  map.on("click",e=>{ if(SA.modo==="dividi") puntoTaglio(e.latlng); });
   pitturaAree(); barraAree(); elencoAree();
 }
 function collegaRicerca(){
@@ -2126,8 +2163,8 @@ function pitturaAree(){
   SA.strati.forEach(l=>SA.map.removeLayer(l)); SA.strati=[];
   for(const a of SA.aree){
     const pts=daGeoJSON(a.geom); if(pts.length<3) continue;
-    const p=L.polygon(pts,{color:"#1F5C2E",weight:2,fillColor:"#8CBF66",fillOpacity:.28})
-      .addTo(SA.map);
+    const p=L.polygon(pts,{color:"#1F5C2E",weight:2,fillColor:"#8CBF66",fillOpacity:.28,
+      interactive:false}).addTo(SA.map);
     p.bindTooltip(`${a.nome} · ${ha(a.ettari)}`,{permanent:true,direction:"center",className:"sa-lab"});
     SA.strati.push(p);
   }
@@ -2218,6 +2255,242 @@ async function saRinomina(id,input){
                                       : "Errore nella rinomina"); }
   a.nome=nome; pitturaAree(); toast("Area rinominata ✓");
 }
+/* ============ LIBRERIE CARICATE SOLO QUANDO SERVONO ============ */
+function caricaLib(url, test){
+  if(test()) return Promise.resolve();
+  return new Promise((ok,ko)=>{
+    const t=document.createElement("script");
+    t.src=url; t.onload=()=>ok(); t.onerror=()=>ko(new Error("libreria non raggiungibile"));
+    document.head.appendChild(t);
+  });
+}
+const libZip  = () => caricaLib("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", ()=>!!window.JSZip);
+const libTurf = () => caricaLib("https://cdnjs.cloudflare.com/ajax/libs/Turf.js/7.1.0/turf.min.js",  ()=>!!window.turf);
+
+/* ============ IMPORTAZIONE DA KMZ / KML ============ */
+function collegaImport(){
+  const f=$("#a-file"), b=$("#a-imp");
+  if(!f||!b) return;
+  b.onclick=()=>f.click();
+  f.onchange=async()=>{ const file=f.files&&f.files[0]; f.value=""; if(file) await leggiFileAree(file); };
+}
+function areeDaKml(testo){
+  const doc=new DOMParser().parseFromString(testo,"text/xml");
+  if(doc.querySelector("parsererror")) throw new Error("file illeggibile");
+  const pezzi=[], letti=(nodo)=>{
+    const t=(nodo.textContent||"").trim();
+    const out=[];
+    for(const c of t.split(/\s+/)){
+      if(!c) continue;
+      const q=c.split(";")[0].split(",");
+      if(q.length>=2){ const la=+q[1], lo=+q[0]; if(isFinite(la)&&isFinite(lo)) out.push([la,lo]); }
+    }
+    if(out.length>1){ const a=out[0], z=out[out.length-1]; if(a[0]===z[0]&&a[1]===z[1]) out.pop(); }
+    return out;
+  };
+  let senza=0;
+  doc.querySelectorAll("Placemark").forEach(pm=>{
+    let nome=""; 
+    for(const c of pm.children) if(c.tagName==="name"){ nome=(c.textContent||"").trim(); break; }
+    const anelli=[...pm.querySelectorAll("outerBoundaryIs LinearRing coordinates")];
+    const linee = anelli.length ? [] : [...pm.querySelectorAll("LineString coordinates")];
+    [...anelli, ...linee].forEach(nodo=>{
+      const pts=letti(nodo);
+      if(pts.length<3) return;
+      pezzi.push({nome: nome || "", pts, ettari: ettariDi(pts)});
+    });
+  });
+  pezzi.forEach((z,i)=>{ if(!z.nome) z.nome="Area "+(i+1); });
+  return pezzi;
+}
+async function leggiFileAree(file){
+  try{
+    let testo;
+    if(/\.kmz$/i.test(file.name)){
+      await libZip();
+      const zip=await JSZip.loadAsync(await file.arrayBuffer());
+      const dentro=Object.keys(zip.files).find(x=>/\.kml$/i.test(x));
+      if(!dentro) throw new Error("nel KMZ non c'è nessun KML");
+      testo=await zip.file(dentro).async("string");
+    } else testo=await file.text();
+    const trovate=areeDaKml(testo);
+    if(!trovate.length) return toast("Nel file non ci sono aree riconoscibili");
+    const buone=trovate.filter(z=>z.ettari>=0.1);
+    const scarti=trovate.length-buone.length;
+    if(!buone.length) return toast("Tutte le zone del file sono sotto 0,1 ha");
+    SA.imp={buone, scarti, nomeFile:file.name};
+    SA.modo="import";
+    // anteprima sulla mappa
+    SA.prev=(SA.prev||[]); SA.prev.forEach(l=>SA.map.removeLayer(l)); SA.prev=[];
+    buone.forEach(z=>{
+      const pl=L.polygon(z.pts,{color:"#E8A33D",weight:2,dashArray:"6,4",fillColor:"#E8A33D",fillOpacity:.25,interactive:false}).addTo(SA.map);
+      SA.prev.push(pl);
+    });
+    SA.map.fitBounds(L.latLngBounds(buone.flatMap(z=>z.pts)),{padding:[30,30],maxZoom:19});
+    barraAree(); elencoAree();
+  }catch(e){ toast("Non riesco a leggere il file: "+e.message); }
+}
+window.saImportaAnnulla = () => {
+  (SA.prev||[]).forEach(l=>SA.map.removeLayer(l)); SA.prev=[];
+  SA.imp=null; SA.modo=null; barraAree(); elencoAree(); inquadra();
+};
+window.saImportaConferma = async () => {
+  const imp=SA.imp; if(!imp) return;
+  const esistenti=new Set(SA.aree.map(a=>a.nome.toLowerCase()));
+  const righe=imp.buone.map((z,i)=>{
+    let nome=z.nome, k=1;
+    while(esistenti.has(nome.toLowerCase())) nome=z.nome+" ("+(++k)+")";
+    esistenti.add(nome.toLowerCase());
+    return {sito_id:SA.sid, nome, geom:versoGeoJSON(z.pts), ettari:Math.round(z.ettari*100)/100, ordine:(SA.aree.length+i+1)};
+  });
+  const {error}=await sb.from("sotto_aree").insert(righe);
+  if(error) return toast("Errore nell'importazione: "+(error.message||""));
+  toast(righe.length+" aree importate ✓");
+  saImportaAnnulla();
+  await ricaricaAree();
+};
+async function ricaricaAree(){
+  const {data}=await sb.from("sotto_aree").select("*").eq("sito_id",SA.sid).order("ordine");
+  SA.aree=data||[]; pitturaAree(); barraAree(); elencoAree(); inquadra();
+}
+
+/* ============ MODIFICA DEI VERTICI ============ */
+window.saVertici = (id) => {
+  pulisciBozza(); pulisciModifica();
+  const a=SA.aree.find(x=>x.id===id); if(!a) return;
+  SA.modo="vertici"; SA.target=id; SA.punti=daGeoJSON(a.geom).map(p=>[p[0],p[1]]);
+  SA.strati.forEach(l=>SA.map.removeLayer(l)); SA.strati=[];
+  disegnaModifica();
+  SA.map.fitBounds(L.latLngBounds(SA.punti),{padding:[40,40],maxZoom:19});
+  barraAree(); elencoAree();
+};
+function pulisciModifica(){
+  (SA.maniglie||[]).forEach(m=>SA.map.removeLayer(m)); SA.maniglie=[];
+  (SA.mezzi||[]).forEach(m=>SA.map.removeLayer(m)); SA.mezzi=[];
+  if(SA.forma){ SA.map.removeLayer(SA.forma); SA.forma=null; }
+}
+function disegnaModifica(){
+  pulisciModifica();
+  SA.forma=L.polygon(SA.punti,{color:"#C0392B",weight:2,fillColor:"#E8A33D",fillOpacity:.2,
+    interactive:false}).addTo(SA.map);
+  const icona=(c)=>L.divIcon({className:"", html:`<div style="width:14px;height:14px;border-radius:50%;background:${c};border:2px solid #fff;box-shadow:0 0 3px rgba(0,0,0,.6)"></div>`, iconSize:[14,14], iconAnchor:[7,7]});
+  SA.maniglie=SA.punti.map((p,i)=>{
+    const m=L.marker(p,{draggable:true, icon:icona("#C0392B")}).addTo(SA.map);
+    m.on("drag",e=>{ const ll=e.target.getLatLng(); SA.punti[i]=[ll.lat,ll.lng]; SA.forma.setLatLngs(SA.punti); });
+    m.on("dragend",()=>{ disegnaModifica(); barraAree(); });
+    m.on("click",()=>{
+      if(SA.punti.length<=3) return toast("Un'area non può avere meno di tre punti");
+      SA.punti.splice(i,1); disegnaModifica(); barraAree(); toast("Punto tolto");
+    });
+    return m;
+  });
+  SA.mezzi=SA.punti.map((p,i)=>{
+    const q=SA.punti[(i+1)%SA.punti.length];
+    const m=L.marker([(p[0]+q[0])/2,(p[1]+q[1])/2],{icon:icona("rgba(255,255,255,.75)")}).addTo(SA.map);
+    m.on("click",()=>{ SA.punti.splice(i+1,0,[(p[0]+q[0])/2,(p[1]+q[1])/2]); disegnaModifica(); barraAree(); });
+    return m;
+  });
+}
+window.saVerticiAnnulla = () => { pulisciModifica(); SA.modo=null; SA.target=null; SA.punti=[]; pitturaAree(); barraAree(); elencoAree(); };
+window.saVerticiSalva = async () => {
+  const id=SA.target; if(!id) return;
+  const et=Math.round(ettariDi(SA.punti)*100)/100;
+  const {error}=await sb.from("sotto_aree").update({geom:versoGeoJSON(SA.punti), ettari:et}).eq("id",id);
+  if(error) return toast("Errore nel salvataggio");
+  toast("Area aggiornata ✓ ("+ha(et)+")");
+  pulisciModifica(); SA.modo=null; SA.target=null; SA.punti=[];
+  await ricaricaAree();
+};
+
+/* ============ UNIONE DI PIÙ AREE ============ */
+window.saUnisci = () => { pulisciBozza(); pulisciModifica(); SA.modo="unisci"; SA.scelte=[]; pitturaAree(); barraAree(); elencoAree(); };
+window.saUnisciAnnulla = () => { SA.modo=null; SA.scelte=[]; barraAree(); elencoAree(); };
+window.saUnisciConferma = async () => {
+  const ids=SA.scelte||[];
+  if(ids.length<2) return toast("Scegli almeno due aree da unire");
+  try{
+    await libTurf();
+    const scelte=ids.map(i=>SA.aree.find(a=>a.id===i)).filter(Boolean);
+    let acc=turf.polygon(scelte[0].geom.coordinates);
+    for(let i=1;i<scelte.length;i++){
+      const u=turf.union(turf.featureCollection([acc, turf.polygon(scelte[i].geom.coordinates)]));
+      if(!u) throw new Error("unione non riuscita");
+      acc=u;
+    }
+    if(acc.geometry.type!=="Polygon")
+      return toast("Le aree scelte non si toccano: l'unione darebbe pezzi separati");
+    const pts=acc.geometry.coordinates[0].map(c=>[c[1],c[0]]);
+    if(pts.length>1 && pts[0][0]===pts[pts.length-1][0] && pts[0][1]===pts[pts.length-1][1]) pts.pop();
+    const et=Math.round(ettariDi(pts)*100)/100;
+    const primo=scelte[0];
+    const {error}=await sb.from("sotto_aree").update({geom:versoGeoJSON(pts), ettari:et}).eq("id",primo.id);
+    if(error) return toast("Errore nel salvataggio");
+    for(const a of scelte.slice(1)){
+      const {error:e2}=await sb.from("sotto_aree").delete().eq("id",a.id);
+      if(e2){ toast("Unite, ma «"+a.nome+"» non si è potuta eliminare"); }
+    }
+    toast("Aree unite in «"+primo.nome+"» ✓ ("+ha(et)+")");
+    SA.modo=null; SA.scelte=[];
+    await ricaricaAree();
+  }catch(e){ toast("Unione non riuscita: "+e.message); }
+};
+
+/* ============ DIVISIONE DI UN'AREA ============ */
+window.saDividi = (id) => {
+  pulisciBozza(); pulisciModifica();
+  SA.modo="dividi"; SA.target=id; SA.taglio=[];
+  if(SA.lineaT){ SA.map.removeLayer(SA.lineaT); SA.lineaT=null; }
+  const a=SA.aree.find(x=>x.id===id);
+  if(a) SA.map.fitBounds(L.latLngBounds(daGeoJSON(a.geom)),{padding:[40,40],maxZoom:19});
+  $("#a-map").classList.add("draw");
+  barraAree(); elencoAree();
+};
+function puntoTaglio(latlng){
+  SA.taglio.push([latlng.lat,latlng.lng]);
+  if(SA.lineaT){ SA.map.removeLayer(SA.lineaT); SA.lineaT=null; }
+  if(SA.taglio.length>=2)
+    SA.lineaT=L.polyline(SA.taglio,{color:"#C0392B",weight:3,dashArray:"6,4"}).addTo(SA.map);
+  barraAree();
+}
+/* taglio con una retta: si tiene la parte da ciascun lato (algoritmo di Sutherland-Hodgman) */
+function mezzoPiano(pts, A, B, segno){
+  const lato=p=>((B[1]-A[1])*(p[0]-A[0])-(B[0]-A[0])*(p[1]-A[1]))*segno;
+  const taglia=(p,q)=>{ const dp=lato(p), dq=lato(q), t=dp/(dp-dq);
+    return [p[0]+(q[0]-p[0])*t, p[1]+(q[1]-p[1])*t]; };
+  const out=[];
+  for(let i=0;i<pts.length;i++){
+    const p=pts[i], q=pts[(i+1)%pts.length], dp=lato(p), dq=lato(q);
+    if(dp>=0) out.push(p);
+    if((dp>0&&dq<0)||(dp<0&&dq>0)) out.push(taglia(p,q));
+  }
+  return out;
+}
+window.saDividiAnnulla = () => {
+  if(SA.lineaT){ SA.map.removeLayer(SA.lineaT); SA.lineaT=null; }
+  SA.modo=null; SA.target=null; SA.taglio=[];
+  $("#a-map").classList.remove("draw");
+  barraAree(); elencoAree();
+};
+window.saDividiConferma = async () => {
+  const a=SA.aree.find(x=>x.id===SA.target);
+  if(!a || (SA.taglio||[]).length<2) return toast("Tocca due punti per tracciare la linea di taglio");
+  const pts=daGeoJSON(a.geom);
+  const [A,B]=SA.taglio;
+  const uno=mezzoPiano(pts,A,B,1), due=mezzoPiano(pts,A,B,-1);
+  if(uno.length<3||due.length<3) return toast("La linea non attraversa l'area: spostala");
+  const e1=Math.round(ettariDi(uno)*100)/100, e2=Math.round(ettariDi(due)*100)/100;
+  if(e1<0.01||e2<0.01) return toast("Una delle due parti sarebbe vuota");
+  const {error}=await sb.from("sotto_aree").update({geom:versoGeoJSON(uno), ettari:e1}).eq("id",a.id);
+  if(error) return toast("Errore nel salvataggio");
+  let nome=a.nome+" B", k=1;
+  while(SA.aree.some(x=>x.nome.toLowerCase()===nome.toLowerCase())) nome=a.nome+" B"+(++k);
+  const {error:e3}=await sb.from("sotto_aree").insert({sito_id:SA.sid, nome, geom:versoGeoJSON(due), ettari:e2, ordine:SA.aree.length+1});
+  if(e3) return toast("Prima parte salvata, seconda no: "+(e3.message||""));
+  toast("Divisa in «"+a.nome+"» ("+ha(e1)+") e «"+nome+"» ("+ha(e2)+") ✓");
+  saDividiAnnulla();
+  await ricaricaAree();
+};
+
 function barraAree(){
   const b=$("#a-bar"); if(!b) return;
   if(SA.modo==="disegno"){
@@ -2236,8 +2509,37 @@ function barraAree(){
     </div><span class="sa-hint">${t?`Stai ridisegnando «${esc(t.nome)}»: il nome puoi cambiarlo qui.`:"Dai un nome all'area e salvala."} <a href="#" onclick="saAnnulla();return false">annulla</a></span>`;
     return;
   }
-  b.innerHTML=`<button class="btn btn-g btn-sm" onclick="saDisegna()">+ Disegna area</button>
-    <span class="sa-hint">Zooma sul campo, poi tocca la mappa per segnare i vertici dell'area.</span>`;
+  if(SA.modo==="import"){
+    const i=SA.imp||{buone:[],scarti:0};
+    b.innerHTML=`<span class="sa-hint">Dal file <b>${esc(i.nomeFile||"")}</b>: <b>${i.buone.length}</b> aree${i.scarti?`, ${i.scarti} scartate perché sotto 0,1 ha`:""}. In arancione l'anteprima.</span>
+      <button class="btn btn-p btn-sm" onclick="saImportaConferma()">Importa ${i.buone.length} aree</button>
+      <button class="btn btn-o btn-sm" onclick="saImportaAnnulla()">Annulla</button>`;
+    return;
+  }
+  if(SA.modo==="vertici"){
+    const t=SA.aree.find(x=>x.id===SA.target)||{};
+    b.innerHTML=`<span class="sa-hint">«${esc(t.nome||"")}»: trascina i punti rossi per spostarli, tocca un punto bianco per aggiungerne uno, tocca un punto rosso per toglierlo. <b>${SA.punti.length}</b> punti · <b>${ha(ettariDi(SA.punti))}</b></span>
+      <button class="btn btn-p btn-sm" onclick="saVerticiSalva()">Salva forma</button>
+      <button class="btn btn-o btn-sm" onclick="saVerticiAnnulla()">Annulla</button>`;
+    return;
+  }
+  if(SA.modo==="unisci"){
+    const q=(SA.scelte||[]).length;
+    b.innerHTML=`<span class="sa-hint">Spunta nell'elenco le aree da unire: <b>${q}</b> scelte. Restano unite sotto il nome della prima; le altre vengono eliminate.</span>
+      <button class="btn btn-p btn-sm" onclick="saUnisciConferma()" ${q<2?"disabled":""}>Unisci</button>
+      <button class="btn btn-o btn-sm" onclick="saUnisciAnnulla()">Annulla</button>`;
+    return;
+  }
+  if(SA.modo==="dividi"){
+    const t=SA.aree.find(x=>x.id===SA.target)||{};
+    const q=(SA.taglio||[]).length;
+    b.innerHTML=`<span class="sa-hint">«${esc(t.nome||"")}»: tocca <b>due punti</b> sulla mappa per tracciare la linea di taglio (${q}/2).</span>
+      <button class="btn btn-p btn-sm" onclick="saDividiConferma()" ${q<2?"disabled":""}>Dividi</button>
+      <button class="btn btn-o btn-sm" onclick="saDividiAnnulla()">Annulla</button>`;
+    return;
+  }
+  b.innerHTML=`<button class="btn btn-o btn-sm" onclick="saUnisci()" ${SA.aree.length<2?"disabled":""}>Unisci aree</button>
+    <span class="sa-hint">Le aree si importano dal file; poi si correggono dall'elenco qui sotto.</span>`;
 }
 function elencoAree(){
   const l=$("#a-list"), t=$("#a-tot"); if(!l) return;
@@ -2248,10 +2550,24 @@ function elencoAree(){
   }
   // l'eliminazione cancella anche gli avanzamenti dell'area: permesso nominale
   const puoEliminare = !!P?.puo_eliminare_aree && !isReadOnly();
+  if(SA.modo==="unisci"){
+    l.innerHTML=SA.aree.map(a=>`<div class="sa-row">
+      <label class="chk2" style="flex:1"><input type="checkbox" class="sa-pick" data-sa="${a.id}" ${(SA.scelte||[]).includes(a.id)?"checked":""}> ${esc(a.nome)}</label>
+      <span class="sa-ha">${ha(a.ettari)}</span></div>`).join("");
+    l.querySelectorAll(".sa-pick").forEach(c=>c.onchange=()=>{
+      const id=+c.dataset.sa;
+      SA.scelte=SA.scelte||[];
+      if(c.checked){ if(!SA.scelte.includes(id)) SA.scelte.push(id); }
+      else SA.scelte=SA.scelte.filter(x=>x!==id);
+      barraAree();
+    });
+    t.innerHTML=""; return;
+  }
   l.innerHTML=SA.aree.map(a=>`<div class="sa-row">
     <input class="sa-nome" data-sa="${a.id}" value="${esc(a.nome)}" title="tocca per rinominare">
     <span class="sa-ha">${ha(a.ettari)}</span>
-    <button class="btn btn-o btn-sm" onclick="saDisegna(${a.id})">Ridisegna</button>
+    <button class="btn btn-o btn-sm" onclick="saVertici(${a.id})">Vertici</button>
+    <button class="btn btn-o btn-sm" onclick="saDividi(${a.id})">Dividi</button>
     ${puoEliminare?`<button class="x" onclick="saElimina(${a.id})" title="elimina">×</button>`:`<span></span>`}
   </div>`).join("");
   // il nome si corregge sul posto: si salva appena si esce dal campo
@@ -2373,12 +2689,12 @@ const SETUP = {
   $("#setup-body").innerHTML=`<div class="card"><h2>Sotto-aree</h2>
     <div class="field"><label>Sito</label><select id="a-sito">${
       DB.siti.map(x=>`<option value="${x.id}" ${x.id===sid?"selected":""}>${esc(x.nome)}</option>`).join("")}</select></div>
-    <p class="muted">Prima trova il campo con la ricerca qui sotto, poi disegna le porzioni in cui il sito è diviso. Gli ettari si calcolano dal disegno e fanno da peso — una sotto-area di 20 ha conta il doppio di una da 10. Le lavorazioni entrano nelle sotto-aree solo se marcate «per sotto-area» in <b>Interventi e sotto-voci</b>.</p>
-    <p class="muted" style="font-size:11.5px">Nella casella puoi scrivere una contrada o un indirizzo, oppure incollare direttamente delle coordinate o un link di Google Maps. Una volta disegnata la prima area, la mappa si riaprirà sempre su questo sito.</p>
+    <p class="muted">Le sotto-aree arrivano dai file di Google Earth (KMZ o KML): qui si importano e si correggono. Gli ettari si calcolano dal disegno e fanno da peso — una sotto-area di 20 ha conta il doppio di una da 10. Le lavorazioni entrano nelle sotto-aree solo se marcate «per sotto-area» in <b>Interventi e sotto-voci</b>.</p>
+    <p class="muted" style="font-size:11.5px">Puoi spostare i vertici di un'area, unirne due o più, o dividerne una in due lungo una linea. Le zone sotto 0,1 ha vengono scartate all'importazione: di solito sono scarti del disegno.</p>
     <div class="sa-cerca">
-      <input id="a-q" placeholder="${esc(segnaposto)}">
-      <button class="btn btn-o btn-sm" id="a-vai">Cerca</button>
-      <button class="btn btn-g btn-sm sa-gps" id="a-gps" title="centra la mappa sulla tua posizione">📍 Dove mi trovo</button>
+      <input type="file" id="a-file" accept=".kmz,.kml,application/vnd.google-earth.kmz" style="display:none">
+      <button class="btn btn-g btn-sm" id="a-imp">📥 Importa KMZ / KML</button>
+      <span class="muted" style="font-size:11.5px">un file per sito, come esportato da Google Earth</span>
     </div>
     <div class="sa-ris" id="a-ris"></div>
     <div id="a-map" class="sa-map"><p class="muted" style="padding:14px">Carico la mappa…</p></div>
