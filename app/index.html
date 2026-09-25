@@ -364,6 +364,12 @@ input[type=date]:invalid,input.bad{border-color:var(--red);background:#FDF1EF}
   background:#F3F6EF;border:1px solid var(--moss);border-radius:var(--r-s);padding:10px;margin-bottom:10px}
 .leaflet-container{font:inherit}
 .sa-map-c{height:260px;border-radius:10px;overflow:hidden;margin-top:10px}
+.sa-scelte{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.sa-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;
+  background:var(--lime);color:var(--forest-d);border-radius:20px;padding:4px 10px}
+.sa-chip.tot{background:var(--forest);color:#fff}
+.sa-chip button{background:none;border:none;color:var(--forest-d);font-size:15px;font-weight:800;
+  line-height:1;padding:0 2px;cursor:pointer}
 @media(min-width:1000px){.sa-map-c{height:340px}}
 .sa-credito{font-size:11px;line-height:1.45;color:var(--mut);margin:-4px 0 12px}
 .sa-credito a{color:var(--forest)}
@@ -740,6 +746,7 @@ function calcSito(sito_id, D){
 let C = null; // stato compilazione corrente
 let SITO_SEL = null;
 let SA_SEL = null;    // sotto-area in compilazione: id, "sito", oppure null se il sito non e' diviso
+let SA_PIU = [];      // aree scelte insieme (compresa SA_SEL): stessa fascia scritta su tutte
 let CURRENT_TAB = "compila";
 function mieiSiti(){
   if(isSuper()) return DB.siti;
@@ -761,7 +768,7 @@ function renderSitoBar(showIt){
   if(siti.length>1){
     bar.innerHTML=`<span class="sb-l">Stai compilando per</span>
       <select id="sb-sel">${siti.map(s=>`<option value="${s.id}" ${s.id===cur?"selected":""}>${esc(s.nome)}</option>`).join("")}</select>`;
-    $("#sb-sel").onchange=e=>{SITO_SEL=+e.target.value;SA_SEL=null;renderSitoBar(true);reRenderCurrent();};
+    $("#sb-sel").onchange=e=>{SITO_SEL=+e.target.value;SA_SEL=null;SA_PIU=[];renderSitoBar(true);reRenderCurrent();};
   } else {
     bar.innerHTML=`<span class="sb-l">Stai compilando per</span><span class="sb-site">📍 ${esc(siti[0]?siti[0].nome:"—")}</span>`;
   }
@@ -1630,8 +1637,15 @@ async function rCompila(){
     if(!valido) SA_SEL = divise.length ? aree[0].id : "sito";
   } else SA_SEL = null;
   const saId = (SA_SEL===null || SA_SEL==="sito") ? null : SA_SEL;
+  // l'insieme delle aree scelte: sempre coerente con l'ambito corrente
+  if(saId===null) SA_PIU=[];
+  else {
+    SA_PIU = SA_PIU.filter(id=>aree.some(a=>a.id===id));
+    if(!SA_PIU.includes(saId)) SA_PIU=[saId, ...SA_PIU];
+  }
+  const saIds = saId===null ? [null] : SA_PIU;
   const attivi = !aree.length ? tutteAttive : (SA_SEL==="sito" ? diSito : divise);
-  CC.saId = saId;   // l'invio deve sapere in quale ambito sta scrivendo
+  CC.saId = saId; CC.saIds = saIds;   // l'invio scrive una riga per ciascuna area scelta
   // stessa base della dashboard: avanzamento gia' registrato e proroghe per forza maggiore
   const R = calcSito(sito, D);
   const avvio = (DB.siti.find(s=>s.id===sito)||{}).data_avvio;
@@ -1646,8 +1660,12 @@ async function rCompila(){
   const maxPct = svid => MAXV(D.avanzamenti.filter(a=>a.sottovoce_id===svid).map(a=>+a.pct||0));
   const maxPiante = siid => MAXV(D.avanz_piante
     .filter(a=>a.sito_intervento_id===siid && (a.sotto_area_id??null)===saId).map(a=>+a.piante||0));
-  const maxPctInt = siid => MAXV(D.avanzamenti
-    .filter(a=>a.sito_intervento_id===siid && (a.sotto_area_id??null)===saId).map(a=>+a.pct||0));
+  // con più aree scelte il valore si mostra solo se coincide in tutte, altrimenti si riparte da n/d
+  const maxPctInt = siid => {
+    const v = saIds.map(id => MAXV(D.avanzamenti
+      .filter(a=>a.sito_intervento_id===siid && (a.sotto_area_id??null)===id).map(a=>+a.pct||0)));
+    return v.every(x=>x===v[0]) ? v[0] : 0;
+  };
   const intDi = c => attivi.filter(si=>{const i=DB.interventi.find(x=>x.id===si.intervento_id);return i&&i.categoria_id===c.id;});
   const cats = DB.categorie.filter(c=>intDi(c).length);
   const avzHtml = cats.map(c=>`<div class="cat-block"><h3 class="cat-h">${esc(c.nome)}</h3>`+
@@ -1655,6 +1673,10 @@ async function rCompila(){
       const intv=DB.interventi.find(x=>x.id===si.intervento_id);
       if(intv.tipo==="piante"){
         const prev=+si.piante_previste||0, cur=maxPiante(si.id);
+        if(saIds.length>1) return `<div class="int-block">
+          <div class="int-t">${esc(intv.nome)} <span class="muted">— piante</span></div>
+          ${scadHtml(si)}
+          <p class="muted"><span class="flag-y">⚠️</span> Le piante si contano una zona alla volta: lascia selezionata una sola area per registrarle.</p></div>`;
         return `<div class="int-block" data-piante="${si.id}">
           <div class="int-t">${esc(intv.nome)} <span class="muted">— piante messe / ${prev||"?"}</span></div>
           ${scadHtml(si)}
@@ -1672,7 +1694,8 @@ async function rCompila(){
   const intOpts = attivi.map(si=>{const i=DB.interventi.find(x=>x.id===si.intervento_id);return `<option value="${si.id}">${esc(i?i.nome:'?')}</option>`}).join("");
   let nc=0; const nn=()=>`<span class="n">${++nc}</span>`;
   const areaSel = aree.find(a=>a.id===SA_SEL);
-  const ambito = !aree.length ? "" : (SA_SEL==="sito" ? " — intero sito" : ` — ${esc(areaSel?areaSel.nome:"")}`);
+  const ambito = !aree.length ? "" : (SA_SEL==="sito" ? " — intero sito"
+    : (saIds.length>1 ? ` — ${saIds.length} aree insieme` : ` — ${esc(areaSel?areaSel.nome:"")}`));
   const cardArea = !aree.length ? "" : `
   <div class="card"><h2>${nn()}Sotto-area</h2>
     <p class="muted">Scegli la porzione di sito per cui stai registrando: le percentuali qui sotto valgono solo per quella.</p>
@@ -1681,7 +1704,8 @@ async function rCompila(){
       ${diSito.length?`<option value="sito" ${SA_SEL==="sito"?"selected":""}>Intero sito — lavorazioni non divise</option>`:""}
     </select>
     ${divise.length?`<div id="c-samap" class="sa-map sa-map-c"><p class="muted" style="padding:12px">Carico la mappa…</p></div>
-      <p class="muted" style="font-size:11.5px;margin-top:6px">Tocca la zona sulla mappa per scegliere dove stai lavorando. In verde quella selezionata.</p>`:""}
+      <p class="muted" style="font-size:11.5px;margin-top:6px">Tocca le zone sulla mappa dove stai lavorando: puoi sceglierne <b>più di una</b> e la fascia che indichi vale per tutte. Tocca di nuovo per togliere.</p>
+      <div id="c-sascelte" class="sa-scelte"></div>`:""}
     ${!divise.length?`<p class="muted" style="margin-top:8px"><span class="flag-y">⚠️</span> Nessuna lavorazione di questo sito è marcata «per sotto-area»: si compila tutto a livello di sito. Lo imposta il super user nel Setup.</p>`:""}
   </div>`;
   $("#pane-compila").innerHTML = `
@@ -1714,9 +1738,22 @@ async function rCompila(){
   $("#c-ri-add").onclick=()=>$("#c-ri-list").insertAdjacentHTML("beforeend",riRow());
   if($("#c-sa")) $("#c-sa").onchange=e=>{
     SA_SEL = e.target.value==="sito" ? "sito" : +e.target.value;
+    SA_PIU = SA_SEL==="sito" ? [] : [SA_SEL];   // dal menù si sceglie una zona sola
     rCompila();   // cambia l'ambito: si ricarica quello che risulta gia' registrato lì
   };
   if($("#c-samap")) mappaScelta(aree, sito);
+  const box=$("#c-sascelte");
+  if(box){
+    const scelte=aree.filter(a=>saIds.includes(a.id));
+    const tot=scelte.reduce((s,a)=>s+(+a.ettari||0),0);
+    box.innerHTML = scelte.length
+      ? scelte.map(a=>`<span class="sa-chip">${esc(a.nome)} · ${ha(a.ettari)}${scelte.length>1?` <button type="button" data-via="${a.id}" title="togli">×</button>`:""}</span>`).join("")
+        + (scelte.length>1?`<span class="sa-chip tot">${scelte.length} aree · ${ha(tot)}</span>`:"")
+      : "";
+    box.querySelectorAll("[data-via]").forEach(b=>b.onclick=()=>{
+      SA_PIU=SA_PIU.filter(x=>x!==+b.dataset.via); SA_SEL=SA_PIU[0]; rCompila();
+    });
+  }
   $("#c-invia").onclick=inviaCompilazione;
 }
 /* ---- mappa della compilazione: si tocca la zona invece di cercarla a menù ---- */
@@ -1733,13 +1770,19 @@ async function mappaScelta(aree, sito){
   aree.forEach(a=>{
     const pts=daGeoJSON(a.geom); if(pts.length<3) return;
     tutti.push(...pts);
-    const scelta = SA_SEL===a.id;
+    const scelta = SA_PIU.includes(a.id) || SA_SEL===a.id;
     const p=L.polygon(pts,{
       color: scelta?"#1F5C2E":"#FAFAF7", weight: scelta?4:2,
       fillColor: scelta?"#8CBF66":"#1A2418", fillOpacity: scelta?0.45:0.12
     }).addTo(MS);
     p.bindTooltip(`${a.nome} · ${ha(a.ettari)}`,{permanent:scelta,direction:"center",className:"sa-lab"});
-    p.on("click",()=>{ if(SA_SEL!==a.id){ SA_SEL=a.id; rCompila(); } });
+    p.on("click",()=>{
+      const dentro=SA_PIU.includes(a.id);
+      if(dentro && SA_PIU.length>1) SA_PIU=SA_PIU.filter(x=>x!==a.id);
+      else if(!dentro) SA_PIU=[...SA_PIU, a.id];
+      else return;                      // l'ultima area non si toglie
+      SA_SEL=SA_PIU[0]; rCompila();
+    });
     p.on("mouseover",()=>{ if(SA_SEL!==a.id) p.setStyle({fillOpacity:0.3}); });
     p.on("mouseout", ()=>{ if(SA_SEL!==a.id) p.setStyle({fillOpacity:0.12}); });
   });
@@ -1757,8 +1800,12 @@ async function inviaCompilazione(){
   if(data && !dataValida(data)) return err("#c-err","Data non valida: controlla l'anno.");
   if(!data) return err("#c-err","Indica la data.");
   // il nome della sotto-area entra nella conferma: sbagliare ambito costa caro
-  const areaNome = CC.saId ? ((CC.D.sotto_aree||[]).find(a=>a.id===CC.saId)||{}).nome
-                 : ((CC.D.sotto_aree||[]).length ? "Intero sito" : null);
+  const ids = CC.saIds || [CC.saId||null];
+  const areaNome = CC.saId
+    ? (ids.length>1
+        ? ids.map(i=>((CC.D.sotto_aree||[]).find(a=>a.id===i)||{}).nome).filter(Boolean).join(", ")
+        : ((CC.D.sotto_aree||[]).find(a=>a.id===CC.saId)||{}).nome)
+    : ((CC.D.sotto_aree||[]).length ? "Intero sito" : null);
   if(!await confermaSito(sito,data,areaNome)) return;
   await sb.from("compilazioni").upsert({sito_id:sito,data,compilatore:comp},{onConflict:"sito_id,data"});
   const sa=CC.saId||null;   // null = registrato per il sito intero
@@ -1766,7 +1813,10 @@ async function inviaCompilazione(){
     const on=r.querySelector(".fascia.on"); const pct=+(on?on.dataset.v:0)||0;
     if(pct<=0) continue;
     if(r.dataset.svid) await sb.from("avanzamenti").insert({sito_id:sito,sottovoce_id:+r.dataset.svid,data,compilatore:comp,pct});
-    else if(r.dataset.iav) await sb.from("avanzamenti").insert({sito_id:sito,sito_intervento_id:+r.dataset.iav,sotto_area_id:sa,data,compilatore:comp,pct});
+    else if(r.dataset.iav){
+      const righe=ids.map(id=>({sito_id:sito,sito_intervento_id:+r.dataset.iav,sotto_area_id:id,data,compilatore:comp,pct}));
+      await sb.from("avanzamenti").insert(righe);
+    }
   }
   for(const r of $$("#pane-compila [data-piante]")){
     const v=+r.querySelector(".cp-piante").value||0;
