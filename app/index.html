@@ -101,6 +101,15 @@ label{display:block;font-size:13px;font-weight:600;color:var(--mut);
   border-radius:6px;background:transparent;width:100%}
 .kpi .k .kpi-inp:focus{border-style:solid;border-color:var(--moss);outline:none}
 .kpi-sco-r{font-size:10.5px;color:var(--mut);margin-top:4px;line-height:1.3}
+tr.riga-sito{cursor:pointer}
+tr.riga-sito:hover td{background:#F2F6EC}
+tr.riga-sito.aperta td{background:var(--lime)}
+.dett-freccia{font-size:9px;color:var(--mut)}
+tr.riga-cat{cursor:pointer}
+tr.riga-cat:hover td{background:#F2F6EC;color:var(--forest)}
+.dett-sito{border-left:4px solid var(--moss)}
+.dett-top{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:4px}
+@media(max-width:620px){.dett-top{grid-template-columns:1fr}}
 .kpi-sco{font-weight:700;color:var(--ink);white-space:nowrap}
 .kpi .k b{font-size:22px;color:var(--forest);display:block}
 .kpi .k span{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
@@ -1420,7 +1429,7 @@ window.esportaGanttExcel = async () => {
 /* ---- budget inseriti a mano (perizia / previsto) e scostamento dal setup ----
    Valori unici aziendali, tenuti in `parametri`. Modificabili solo dal super user.
    Scostamento = budget inserito - budget da setup; presentazione neutra. */
-function kpiBudgetManuale(chiave, etichetta, budgetSetup){
+function kpiBudgetManuale(chiave, etichetta, budgetSetup, sommaSiti){
   const v = +(DB.par?.[chiave]) || 0;
   const modificabile = isSuper() && !isReadOnly();
   const campo = modificabile
@@ -1432,28 +1441,90 @@ function kpiBudgetManuale(chiave, etichetta, budgetSetup){
     const segno = d>0?"+":"";
     sco = `<span class="kpi-sco">${segno}${eur(d)} · ${segno}${pct.toLocaleString("it-IT",{maximumFractionDigits:1})}%</span>`;
   }
+  const riga2 = (sommaSiti>0)
+    ? `<div class="kpi-sco-r">somma dei budget per sito: <span class="kpi-sco">${eur(sommaSiti)}</span></div>` : "";
   return `<div class="k"><div class="kpi-b">${campo}</div><span>${etichetta}</span>
-    <div class="kpi-sco-r">scostamento dal setup: ${sco}</div></div>`;
+    <div class="kpi-sco-r">scostamento dal setup: ${sco}</div>${riga2}</div>`;
 }
 async function salvaBudgetManuale(chiave, valore){
   const {error}=await sb.from("parametri").upsert({chiave,valore});
   if(error) return toast("Errore di salvataggio");
   DB.par[chiave]=valore; toast("Budget salvato ✓"); rDash();
 }
+let SITO_DETT=null;   // sito aperto nel dettaglio sotto il consolidamento
+window.dettSito = id => { SITO_DETT = (SITO_DETT===id ? null : id); rDash(); };
+window.vaiASetupCat = (sitoId, catId) => {
+  if(!isSuper() || isReadOnly()) return toast("Solo il super user può modificare il Setup");
+  SETUP_SITO = sitoId;
+  if(catId) CAT_SEL = catId;
+  show("setup");          // rSetup apre la sezione interventi con sito e categoria scelti
+};
+async function salvaPeriziaSito(sitoId, valore){
+  const {error}=await sb.from("siti").update({budget_perizia: valore||null}).eq("id",sitoId);
+  if(error) return toast("Errore di salvataggio");
+  const st=DB.siti.find(x=>x.id===sitoId); if(st) st.budget_perizia=valore||null;
+  toast("Budget perizia salvato ✓"); rDash();
+}
+/* scheda di dettaglio di un sito: budget di perizia e categorie, con scorciatoia al Setup */
+function dettaglioSito(voce){
+  const {sito,R}=voce;
+  const per=+sito.budget_perizia||0;
+  const bud=R.costi.budgetTot;
+  const modificabile = isSuper() && !isReadOnly();
+  const campo = modificabile
+    ? `<input type="number" step="1000" class="kpi-inp" data-perizia="${sito.id}" value="${per||""}" placeholder="—" style="max-width:190px">`
+    : `<b>${per?eur(per):"—"}</b>`;
+  let sco='<span class="kpi-sco">—</span>';
+  if(per>0){ const d=per-bud, pct=Math.round(d/per*1000)/10, sg=d>0?"+":"";
+    sco=`<span class="kpi-sco">${sg}${eur(d)} · ${sg}${pct.toLocaleString("it-IT",{maximumFractionDigits:1})}%</span>`; }
+  const voci=vistaPer(R).filter(x=>x.budget>0).sort((a,b)=>b.budget-a.budget);
+  const tot=voci.reduce((s2,x)=>s2+x.budget,0);
+  const righe=voci.map(x=>`<tr class="riga-cat" onclick="vaiASetupCat(${sito.id}, ${VISTA==="perizia"?"null":x.id})"
+      title="apri nel Setup">
+      <td>${esc(vistaNome(x.id))}</td><td>${eur(x.budget)}</td>
+      <td>${tot?Math.round(x.budget/tot*100):0}%</td><td>${Math.round(x.avz*100)}%</td></tr>`).join("");
+  return `<div class="card dett-sito">
+    <h2>📍 ${esc(nomeSito(sito))} — budget e avanzamento</h2>
+    <div class="dett-top">
+      <div><span class="muted">Budget perizia del sito</span><div class="kpi-b">${campo}</div>
+        <div class="kpi-sco-r">scostamento dal setup (${eur(bud)}): ${sco}</div></div>
+      <div><span class="muted">Avanzamento</span><div><b style="font-size:20px;color:var(--forest)">${Math.round(R.avz*100)}%</b></div>
+        <div class="kpi-sco-r">${R.ettari.toLocaleString("it-IT",{maximumFractionDigits:1})} ha su ${sito.ettari_totali||0}</div></div>
+    </div>
+    <div class="scroll-x" style="margin-top:10px">
+      <table class="grid"><tr><th>${VISTA==="perizia"?"Categoria perizia":"Categoria"}</th><th>Budget</th><th>% sul sito</th><th>Avanz.</th></tr>
+      ${righe||'<tr><td colspan="4" class="muted">Nessuna lavorazione con budget in questo sito.</td></tr>'}
+      <tr><td><b>TOTALE</b></td><td><b>${eur(tot)}</b></td><td><b>100%</b></td><td></td></tr></table>
+    </div>
+    ${VISTA==="perizia"?'<p class="muted" style="margin-top:8px">Per aprire il Setup su una categoria passa alla vista «Per lavorazione».</p>'
+      :'<p class="muted" style="margin-top:8px">Tocca una riga per aprire quella categoria nel Setup di questo sito.</p>'}
+  </div>`;
+}
 let chRef=null;
 async function rDash(){
   const all = await calcTutti();
-  let T={totale:0,interno:0,terzisti:0,ettari:0,budget:0,fermo:0,ettariTot:0};
+  let T={totale:0,interno:0,terzisti:0,ettari:0,budget:0,fermo:0,ettariTot:0,
+         perizieSiti: all.reduce((s2,{sito})=>s2+(+sito.budget_perizia||0),0)};
   let scadAll=[];
   for(const {sito,D,R} of all){ scadenzeSito(sito.id,D,R).forEach(i=>scadAll.push(Object.assign({sito:nomeSito(sito)},i))); }
   const ordS={scaduto:0,'5':1,'10':2,'20':3,nd_tempo:4,ok:5,completato:6,nd:7};
   scadAll.sort((a,b)=>(ordS[a.stato]-ordS[b.stato])||((a.rim??1e9)-(b.rim??1e9)));
   for(const {sito,R} of all){const c=R.costi;T.totale+=c.totale;T.interno+=c.interno;T.terzisti+=c.terzisti;T.ettari+=R.ettari;T.budget+=c.budgetTot;T.fermo+=R.gg_fermo;T.ettariTot+=(+sito.ettari_totali||0);}
   // consolidamento
-  const cons = all.map(({sito,R})=>`<tr><td>${esc(nomeSito(sito))}</td>
+  const cons = all.map(({sito,R})=>`<tr class="riga-sito ${SITO_DETT===sito.id?"aperta":""}" onclick="dettSito(${sito.id})" title="apri il dettaglio del sito">
+    <td>${esc(nomeSito(sito))} <span class="dett-freccia">${SITO_DETT===sito.id?"▲":"▼"}</span></td>
     <td>${Math.round(R.avz*100)}%</td><td>${R.ettari.toLocaleString("it-IT",{maximumFractionDigits:1})}</td>
     <td>${eur(R.costi.interno)}</td><td>${eur(R.costi.terzisti)}</td>
-    <td title="materiali interni e preventivi maturati">${eur(R.costi.totale)}</td><td>${eur(R.costi.budgetTot)}</td></tr>`).join("");
+    <td title="ore, macchine e carburanti">${eur(R.costi.ore+R.costi.macchine+R.costi.carburanti)}</td>
+    <td title="materiali interni e preventivi maturati, più il consuntivo">${eur(R.costi.totale)}</td>
+    <td>${eur(R.costi.budgetTot)}</td>
+    <td>${sito.budget_perizia?eur(+sito.budget_perizia):"—"}</td>
+    ${(()=>{ const per=+sito.budget_perizia||0;
+      if(!per) return `<td class="muted">—</td>`;
+      const d=per-R.costi.budgetTot, pct=Math.round(d/per*1000)/10, sg=d>0?"+":"";
+      return `<td title="budget di perizia meno budget del Setup">${sg}${eur(d)}<br><span class="muted">${sg}${pct.toLocaleString("it-IT",{maximumFractionDigits:1})}%</span></td>`;
+    })()}</tr>`).join("");
+  const dettCorr = SITO_DETT ? all.find(v=>v.sito.id===SITO_DETT) : null;
   // categorie presenti in almeno un sito (per heatmap avanzamento sito×categoria)
   const catAvz = {}; // sito_id -> {id: avz}
   const catBud = {};
@@ -1493,7 +1564,7 @@ async function rDash(){
      <div class="k"><b>${eur(T.terzisti)}</b><span>di cui conto terzi</span></div>
      <div class="k"><b>${T.ettari.toLocaleString("it-IT",{maximumFractionDigits:1})}/${T.ettariTot}</b><span>Ettari completati</span></div>
      <div class="k"><b>${eur(T.budget)}</b><span>Budget materiali/preventivi</span></div>
-     ${kpiBudgetManuale("budget_perizia","Budget perizia",T.budget)}
+     ${kpiBudgetManuale("budget_perizia","Budget perizia",T.budget, T.perizieSiti)}
      ${kpiBudgetManuale("budget_previsto","Budget previsto",T.budget)}
    </div>
    ${segnalazioni(all)}
@@ -1506,8 +1577,9 @@ async function rDash(){
      <p class="muted" style="margin-top:8px">Gli avanzamenti sono pesati sui budget: una voce da 300.000 € conta più di una da 3.000 €.</p></div>
    ${renderScadenzeRaggruppate(scadAll,!isReadOnly())}
    <div class="card"><h2>Consolidamento ${DB.siti.length} siti</h2><div class="scroll-x">
-     <table class="grid"><tr><th>Sito</th><th>Avz.</th><th>Ettari</th><th>Interno</th><th>Conto terzi</th><th>Totale</th><th>Budget</th></tr>${cons}</table>
-   </div><p class="muted" style="margin-top:8px">Il totale include ore/macchine/carburanti; il budget è solo materiali e preventivi.</p></div>
+     <table class="grid"><tr><th>Sito</th><th>Avz.</th><th>Ettari</th><th>Interno</th><th>Conto terzi</th><th>Consuntivo</th><th>Totale</th><th>Budget setup</th><th>Perizia</th><th>Scost. perizia</th></tr>${cons}</table>
+   </div><p class="muted" style="margin-top:8px">Il <b>consuntivo</b> è ore, macchine e carburanti; il <b>totale</b> lo somma ai materiali e preventivi maturati. Il <b>budget setup</b> nasce dalle lavorazioni inserite, la <b>perizia</b> si scrive a mano e lo scostamento è la differenza fra le due. Tocca un sito per vederne budget e avanzamento per categoria.</p></div>
+   ${dettCorr?dettaglioSito(dettCorr):""}
    <div class="card"><h2>Heatmap avanzamento (sito × ${VISTA==="perizia"?"categoria perizia":"categoria"})</h2><div class="scroll-x">${heat}</div></div>
    <div class="dash-due">
    <div class="card"><h2>Efficienza dei siti a confronto</h2>
@@ -1564,6 +1636,10 @@ async function rDash(){
     csvOut("dettaglio_carburanti.csv",r);
   };
   $$("[data-par]").forEach(i=>i.onchange=()=>salvaBudgetManuale(i.dataset.par, +i.value||0));
+  $$("[data-perizia]").forEach(i=>{
+    i.onclick=e=>e.stopPropagation();
+    i.onchange=()=>salvaPeriziaSito(+i.dataset.perizia, +i.value||0);
+  });
   $$("[data-csv]").forEach(b=>b.onclick=()=>exportCsv(b.dataset.csv));
   if($("#csv-consol"))$("#csv-consol").onclick=()=>{
     const rows=[["sito","lotto","categoria","categoria_perizia","intervento","modalita","priorita","budget","avanzamento_pct","costo_maturato","da_verificare","dati_mancanti"]];
@@ -2659,6 +2735,7 @@ function svRow(id,nome){
 }
 
 let CAT_SEL=null, LOTTO_SEL=null, NUOVA_RIGA=null;
+let SETUP_SITO=null;   // sito su cui aprire il Setup arrivando dalla dashboard
 /* ---- SALVATAGGIO AUTOMATICO DEL SETUP ----
    Ogni sezione registra la propria funzione di salvataggio in SETUP_SALVA.
    Cambiando sezione, sito, categoria o scheda le modifiche in sospeso
@@ -2788,7 +2865,8 @@ const SETUP = {
 
  /* ---- Interventi e sotto-voci (cuore della gerarchia) ---- */
  async interventi(){
-  const sid=+($("#i-sito")?.value||DB.siti[0].id);
+  const sid=SETUP_SITO ?? +($("#i-sito")?.value||DB.siti[0].id);
+  SETUP_SITO=null;
   const cat=CAT_SEL ?? +($("#i-cat")?.value||DB.categorie[0].id);
   const flt=LOTTO_SEL ?? ($("#i-lotto")?.value||"");
   CAT_SEL=null; LOTTO_SEL=null;
