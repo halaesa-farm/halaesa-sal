@@ -206,6 +206,9 @@ details.pan .pan-b{padding:0 16px 16px}
 .sv-av{margin:0 0 10px}
 .sv-av>label{display:block;font-size:13px;color:var(--mut);margin-bottom:4px}
 .cp-piante{font-size:16px}
+.cp-nota-r{margin-top:8px}
+.cp-nota{font-size:13px;padding:8px 10px;border-style:dashed}
+.cp-nota:focus{border-style:solid}
 .chk{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;margin:6px 0;cursor:pointer}
 .chk input{width:18px;height:18px}
 .chk2{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--mut)}
@@ -1742,6 +1745,21 @@ async function rCompila(){
       .filter(a=>a.sito_intervento_id===siid && (a.sotto_area_id??null)===id).map(a=>+a.pct||0)));
     return v.every(x=>x===v[0]) ? v[0] : 0;
   };
+  // ultima nota scritta su quella lavorazione, nell'ambito (sito o sotto-area) in cui si sta compilando
+  const notaDi = siid => {
+    const righe=D.avanzamenti.filter(a=>a.nota && String(a.nota).trim() &&
+      (a.sito_intervento_id===siid ||
+       (D.sottovoci||[]).some(sv=>sv.id===a.sottovoce_id && sv.sito_intervento_id===siid)) &&
+      saIds.includes(a.sotto_area_id??null));
+    if(!righe.length) return "";
+    righe.sort((x,y)=>String(x.data).localeCompare(String(y.data))||(x.id-y.id));
+    return righe[righe.length-1].nota;
+  };
+  const rigaNota = si => {
+    const t=notaDi(si.id);
+    return `<div class="cp-nota-r"><input class="cp-nota" data-nota="${si.id}" value="${esc(t)}"
+      maxlength="300" placeholder="nota (facoltativa): ostacoli, dettagli, cosa resta da fare"></div>`;
+  };
   const intDi = c => attivi.filter(si=>{const i=DB.interventi.find(x=>x.id===si.intervento_id);return i&&i.categoria_id===c.id;});
   const cats = DB.categorie.filter(c=>intDi(c).length);
   const avzHtml = cats.map(c=>`<div class="cat-block"><h3 class="cat-h">${esc(c.nome)}</h3>`+
@@ -1756,7 +1774,8 @@ async function rCompila(){
         return `<div class="int-block" data-piante="${si.id}">
           <div class="int-t">${esc(intv.nome)} <span class="muted">— piante messe / ${prev||"?"}</span></div>
           ${scadHtml(si)}
-          <input type="number" class="cp-piante" value="${cur||""}" placeholder="totale piante messe a dimora"></div>`;
+          <input type="number" class="cp-piante" value="${cur||""}" placeholder="totale piante messe a dimora">
+          ${rigaNota(si)}</div>`;
       }
       // dove si compila per sotto-area, le sotto-voci lasciano il posto: una sola fascia
       const svs=si.per_sotto_area?[]:D.sottovoci.filter(s=>s.sito_intervento_id===si.id);
@@ -1765,6 +1784,7 @@ async function rCompila(){
         ${scadHtml(si)}
         ${svs.length? svs.map(sv=>`<div class="sv-av" data-svid="${sv.id}"><label>${esc(sv.nome)}</label>${fasceWidget(maxPct(sv.id))}</div>`).join("")
                     : `<div class="sv-av" data-iav="${si.id}"><label class="muted">Avanzamento dell'intervento</label>${fasceWidget(maxPctInt(si.id))}</div>`}
+        ${rigaNota(si)}
       </div>`;
     }).join("")+`</div>`).join("");
   const intOpts = attivi.map(si=>{const i=DB.interventi.find(x=>x.id===si.intervento_id);return `<option value="${si.id}">${esc(i?i.nome:'?')}</option>`}).join("");
@@ -1885,14 +1905,35 @@ async function inviaCompilazione(){
   if(!await confermaSito(sito,data,areaNome)) return;
   await sb.from("compilazioni").upsert({sito_id:sito,data,compilatore:comp},{onConflict:"sito_id,data"});
   const sa=CC.saId||null;   // null = registrato per il sito intero
+  // la nota di ciascuna lavorazione: si salva anche senza avanzamento, ma solo se è cambiata
+  const noteDa = {};
+  for(const i of $$("#pane-compila [data-nota]")){
+    const testo=(i.value||"").trim();
+    if(testo!==(i.defaultValue||"").trim()) noteDa[+i.dataset.nota]=testo;
+  }
+  const conNota = new Set(Object.keys(noteDa).map(Number));
   for(const r of $$("#pane-compila .sv-av")){
     const on=r.querySelector(".fascia.on"); const pct=+(on?on.dataset.v:0)||0;
-    if(pct<=0) continue;
-    if(r.dataset.svid) await sb.from("avanzamenti").insert({sito_id:sito,sottovoce_id:+r.dataset.svid,data,compilatore:comp,pct});
-    else if(r.dataset.iav){
-      const righe=ids.map(id=>({sito_id:sito,sito_intervento_id:+r.dataset.iav,sotto_area_id:id,data,compilatore:comp,pct}));
+    if(r.dataset.svid){
+      if(pct<=0) continue;
+      const sv=(CC.D.sottovoci||[]).find(x=>x.id===+r.dataset.svid);
+      const siid=sv?sv.sito_intervento_id:null;
+      const nota = (siid && conNota.has(siid)) ? noteDa[siid] : null;
+      if(nota!==null) conNota.delete(siid);
+      await sb.from("avanzamenti").insert({sito_id:sito,sottovoce_id:+r.dataset.svid,data,compilatore:comp,pct,nota});
+    } else if(r.dataset.iav){
+      const siid=+r.dataset.iav;
+      const nota = conNota.has(siid) ? noteDa[siid] : null;
+      if(pct<=0 && nota===null) continue;          // niente da registrare
+      if(nota!==null) conNota.delete(siid);
+      const righe=ids.map(id=>({sito_id:sito,sito_intervento_id:siid,sotto_area_id:id,data,compilatore:comp,pct,nota}));
       await sb.from("avanzamenti").insert(righe);
     }
+  }
+  // note di lavorazioni che non hanno fasce qui (piantumazione, o sotto-voci già salvate)
+  for(const siid of conNota){
+    const righe=ids.map(id=>({sito_id:sito,sito_intervento_id:siid,sotto_area_id:id,data,compilatore:comp,pct:0,nota:noteDa[siid]}));
+    await sb.from("avanzamenti").insert(righe);
   }
   for(const r of $$("#pane-compila [data-piante]")){
     const v=+r.querySelector(".cp-piante").value||0;
