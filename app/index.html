@@ -209,6 +209,25 @@ details.pan .pan-b{padding:0 16px 16px}
 .cp-nota-r{margin-top:8px}
 .cp-nota{font-size:13px;padding:8px 10px;border-style:dashed}
 .cp-nota:focus{border-style:solid}
+.cp-nota-f{font-size:11px;color:var(--mut);margin-top:3px;font-style:italic}
+.cp-cat-f{margin:-4px 0 14px}
+.cp-pend{font-size:11.5px;color:#B8841F;font-weight:700;margin-top:6px}
+.cp-rit{border:1px solid #E8C9A0;background:#FDF6EC;border-radius:10px;padding:8px 10px;margin-top:8px}
+.cp-rit-h{font-size:12px;font-weight:800;color:#A8641A;margin-bottom:5px}
+.cp-rit-r{display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0;cursor:pointer;
+  text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink);margin:0}
+.cp-rit-r input{width:17px;height:17px;flex:0 0 auto;margin:0}
+.cp-rit-r>span{flex:1 1 auto;min-width:0}
+.cp-rit-r b{font-size:11px;font-weight:800;color:var(--forest);flex:0 0 auto;
+  text-transform:uppercase;letter-spacing:.04em}
+.cp-date{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;
+  border-top:1px dashed var(--bordo);padding-top:8px}
+.cp-date .field{margin:0}
+.cp-date label{font-size:11px}
+.cp-date input{font-size:13px;padding:7px 9px}
+.cp-dn-f,.cp-dpiano{grid-column:1/-1}
+.cp-dpiano{font-size:11px;color:var(--mut)}
+@media(max-width:430px){.cp-date{grid-template-columns:1fr}}
 .chk{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;margin:6px 0;cursor:pointer}
 .chk input{width:18px;height:18px}
 .chk2{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--mut)}
@@ -226,6 +245,17 @@ details.pan .pan-b{padding:0 16px 16px}
 .effgrid .tile b{font-size:17px;font-weight:800;display:block;line-height:1}
 .effgrid .tile span{font-size:9.5px;opacity:.9;display:block;margin-top:2px}
 .effgrid .tile.nd{background:#E6E8E1!important;color:var(--mut)}
+.grid .hm-sep{box-shadow:inset 3px 0 0 var(--forest)}
+.per-f{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px}
+.per-f .field{margin:0}
+.per-f input[type=date]{min-width:150px}
+.per-rap{display:flex;gap:6px;flex-wrap:wrap}
+.per-rap button{font-size:11.5px;padding:7px 10px;border:1px solid var(--bordo);background:#fff;
+  border-radius:9px;cursor:pointer;font-weight:600;color:var(--mut)}
+.per-rap button:hover{border-color:var(--forest);color:var(--forest)}
+.per-mosse{font-size:12px;margin:4px 0 0 0}
+.per-mosse div{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px dotted var(--bordo)}
+.per-mosse b{font-weight:700;white-space:nowrap}
 .efflegend{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:11.5px;color:var(--mut)}
 .efflegend .sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:4px}
 /* sopra i controlli Leaflet, che stanno a 1000 */
@@ -550,11 +580,12 @@ async function show(k){
 /* ---------------- DATI PER SITO + MOTORE COSTI GERARCHICO (Blocco 2) ---------------- */
 async function datiSito(sito_id){
   const q = t => sb.from(t).select("*").eq("sito_id",sito_id);
-  const [si_int, sc, av, ap, ou, mg, ga, ri, sa] = await Promise.all([
-    q("sito_interventi"), q("sito_categorie"),
+  const [si_int, av, ap, ou, mg, ga, ri, sa, dl] = await Promise.all([
+    q("sito_interventi"),
     q("avanzamenti"), q("avanz_piante"), q("ore_uomo"),
     q("macchine_giorno"), q("carburanti"), q("ritardi"),
     sb.from("sotto_aree").select("*").eq("sito_id",sito_id).order("ordine"),
+    q("date_lavorazione"),
   ]);
   const siIds = (si_int.data||[]).map(x=>x.id);
   let sv = [];
@@ -563,7 +594,7 @@ async function datiSito(sito_id){
     sv = r.data||[];
   }
   (si_int.data||[]).forEach(x=>pulisciDate(x,["scadenza","data_inizio"]));
-  return {sito_interventi:si_int.data||[], sito_categorie:sc.data||[], sottovoci:sv,
+  return {sito_interventi:si_int.data||[], date_lavorazione:dl.data||[], sottovoci:sv,
           sotto_aree:(sa.data||[]).slice().sort((a,b)=>(a.ordine-b.ordine)||String(a.nome).localeCompare(String(b.nome),"it")),
           avanzamenti:av.data||[], avanz_piante:ap.data||[], ore_uomo:ou.data||[],
           macchine_giorno:mg.data||[], carburanti:ga.data||[], ritardi:ri.data||[]};
@@ -597,16 +628,21 @@ const toIso = d => (d && !isNaN(d)) ? d.toISOString().slice(0,10) : null;
 const addGG = (iso,n) => { const d=toD(iso); if(!d || !isFinite(n)) return null; d.setUTCDate(d.getUTCDate()+n); return toIso(d); };
 const diffGG = (a,b) => { const x=toD(a), y=toD(b); return (x&&y) ? Math.round((x-y)/DAY) : NaN; };
 
-// per ogni riga: inizio effettivo, fine, ritardo sulla scadenza, catena e anelli
-function pianifica(righe){
+/* per ogni riga: inizio effettivo, fine, ritardo sulla scadenza, catena e anelli.
+   "extra" porta quanto la realtà si discosta dal piano, per singola lavorazione:
+   - slitta: giorni di ritardo ancora aperti (il FM non li ha spuntati come risolti)
+   - inizioEff / fineEff: date reali scritte in compilazione; la fine reale sostituisce
+     quella calcolata, cosicché un anticipo accorcia la barra e libera prima i successori. */
+function pianifica(righe, extra){
   const byId=new Map(righe.map(r=>[r.id,r]));
   const out=new Map();
   function calc(r,visti){
     if(out.has(r.id)) return out.get(r.id);
     if(visti.has(r.id)){ const c={ciclo:true}; out.set(r.id,c); return c; }
     visti.add(r.id);
+    const e = (extra && extra.get(r.id)) || {};
     const durata = r.durata_giorni==null ? null : +r.durata_giorni;
-    let inizio = r.data_inizio || null, pred=null, predMancante=false;
+    let inizio = e.inizioEff || r.data_inizio || null, pred=null, predMancante=false;
     if(r.dipende_da){
       pred = byId.get(r.dipende_da);
       if(!pred || pred.annullato){ predMancante=true; }
@@ -614,11 +650,16 @@ function pianifica(righe){
         const p=calc(pred,visti);
         if(p.ciclo){ const c={ciclo:true}; out.set(r.id,c); return c; }
         // la data inserita a mano vince; il predecessore la calcola solo se manca
-        if(p.fine && !r.data_inizio) inizio = addGG(p.fine,1);
+        if(p.fine && !r.data_inizio && !e.inizioEff) inizio = addGG(p.fine,1);
       }
     }
-    const fine = (inizio && durata) ? addGG(inizio, durata-1) : null;
-    const res = {inizio, fine, durata, predMancante,
+    const base = (inizio && durata) ? addGG(inizio, durata-1) : null;
+    const slitta = +e.slitta||0;
+    let fine = base ? addGG(base, slitta) : null;
+    const concluso = !!e.fineEff;
+    if(concluso) fine = e.fineEff;          // a lavorazione chiusa vale la data reale
+    const res = {inizio, fine, durata, predMancante, slitta, concluso,
+      scartoReale: (concluso && base) ? diffGG(fine, base) : null,
       predNome: pred ? (DB.interventi.find(i=>i.id===pred.intervento_id)||{}).nome : null,
       ritardo: (fine && r.scadenza) ? diffGG(fine, r.scadenza) : null, ciclo:false};
     out.set(r.id,res); return res;
@@ -654,8 +695,18 @@ function statoGantt(p, avz, scadenza, oggiStr){
 const budgetEffDi = (si,intv) => intv.tipo==="piante"
   ? (+si.piante_previste||0)*(+si.costo_unitario||0) : (+si.budget||0);
 
-function calcSito(sito_id, D){
+function calcSito(sito_id, D, lim){
   const sito = DB.siti.find(s=>s.id===sito_id) || {};
+  // "lim" = fotografia al giorno indicato: si leggono solo le registrazioni fino a quella data.
+  // Serve al pannello di periodo, che confronta due fotografie e ne mostra la differenza.
+  if(lim) D = Object.assign({}, D, {
+    avanzamenti:    D.avanzamenti.filter(a=>!a.data || a.data<=lim),
+    avanz_piante:   D.avanz_piante.filter(a=>!a.data || a.data<=lim),
+    ore_uomo:       D.ore_uomo.filter(o=>!o.data || o.data<=lim),
+    macchine_giorno:D.macchine_giorno.filter(m=>!m.data || m.data<=lim),
+    carburanti:     D.carburanti.filter(g=>!g.data || g.data<=lim),
+    ritardi:        D.ritardi.filter(r=>!r.data || r.data<=lim)
+  });
   const prezzoGasolio = DB.par?.prezzo_gasolio || 0;
   const prezzoBenzina = DB.par?.prezzo_benzina || 0;
   const tariffaOp = id => (DB.operai.find(o=>o.id===id)||{}).tariffa_ora || 0;
@@ -701,6 +752,7 @@ function calcSito(sito_id, D){
     const ore=D.ore_uomo.filter(o=>o.sito_intervento_id===si.id)
                 .reduce((s,o)=>s+(+o.ore||0)*tariffaOp(o.operaio_id),0);
     return {si_id:si.id,intervento_id:si.intervento_id,categoria_id:intv.categoria_id,
+            gg:(si.durata_giorni==null?0:+si.durata_giorni||0),
             perizia_id:intv.categoria_perizia_id, lotto:si.lotto||"Intero sito",
             nome:intv.nome,modalita:si.modalita,tipo:intv.tipo,avz,budgetEff,costoBudget,ore,
             costoInt:costoBudget+ore, mancanti:mancanti(si,intv), daVerificare:!!si.da_verificare,
@@ -719,18 +771,17 @@ function calcSito(sito_id, D){
   }
   const perCat = aggrega(perInt,"categoria_id").map(x=>({categoria_id:x.id,...x}));
   const perPz  = aggrega(perInt,"perizia_id").map(x=>({perizia_id:x.id,...x}));
-  // ---- SITO: pesato sui budget; se non ci sono budget, pesi di categoria ----
+  // ---- SITO: due letture dello stesso avanzamento ----
+  // finanziaria: ogni lavorazione pesa per i suoi euro di budget
+  // lavori: la stessa lavorazione pesa per le giornate previste nel Setup
+  // dove il riferimento manca del tutto si ripiega sulla media semplice
   const budTot = perInt.reduce((s,p)=>s+p.budgetEff,0);
-  let avz, pesoTot=0, avzPesato=0;
-  if(budTot>0){
-    avz = perInt.reduce((s,p)=>s+p.budgetEff*p.avz,0)/budTot;
-  } else {
-    for(const c of perCat){
-      const w=(D.sito_categorie.find(x=>x.categoria_id===c.categoria_id)||{}).peso_pct||0;
-      avzPesato+=(w/100)*c.avz; pesoTot+=w/100;
-    }
-    avz = pesoTot>0?avzPesato/pesoTot:0;
-  }
+  const ggTot  = perInt.reduce((s,p)=>s+p.gg,0);
+  const media  = perInt.length ? perInt.reduce((s,p)=>s+p.avz,0)/perInt.length : 0;
+  const avz    = budTot>0 ? perInt.reduce((s,p)=>s+p.budgetEff*p.avz,0)/budTot : media;
+  const avzGG  = ggTot>0  ? perInt.reduce((s,p)=>s+p.gg*p.avz,0)/ggTot        : media;
+  // indicatore sintetico: quanto corre l'avanzamento in euro rispetto a quello in giornate
+  const indice = (avzGG>0 && budTot>0 && ggTot>0) ? avz/avzGG : null;
   const ettari=(+sito.ettari_totali||0)*avz;
   // ---- COSTI ----
   let bIn=0,bTe=0,cIn=0,cTe=0,ore=0;
@@ -749,7 +800,7 @@ function calcSito(sito_id, D){
   const nMancanti = perInt.filter(p=>p.mancanti.length).length + (VUOTO(sito.ettari_totali)?1:0);
   const nRosse    = perInt.filter(p=>p.daVerificare).length;
   const lotti     = [...new Set(D.sito_interventi.filter(x=>x.attivo&&!x.annullato).map(x=>x.lotto||"Intero sito"))];
-  return {avz,avzPesato,pesoTot,ettari,perInt,perCat,perPz,gg_fermo,nMancanti,nRosse,lotti,budTot,
+  return {avz,avzGG,indice,ggTot,ettari,perInt,perCat,perPz,gg_fermo,nMancanti,nRosse,lotti,budTot,
     ettariMancanti:VUOTO(sito.ettari_totali),
     costi:{costoMatInhouse:cIn,costoMatTerzi:cTe,ore,macchine,carburanti,interno,terzisti,totale,budgetTot,budgetInhouse:bIn,budgetTerzi:bTe}};
 }
@@ -759,6 +810,8 @@ let C = null; // stato compilazione corrente
 let SITO_SEL = null;
 let SA_SEL = null;    // sotto-area in compilazione: id, "sito", oppure null se il sito non e' diviso
 let SA_PIU = [];      // aree scelte insieme (compresa SA_SEL): stessa fascia scritta su tutte
+let CP_CAT = null;    // categoria aperta nella compilazione ("*" = tutte)
+let CP_BOZZA = {};    // quanto il FM ha indicato ma non ancora inviato: sopravvive al cambio di categoria
 let CURRENT_TAB = "compila";
 function mieiSiti(){
   if(isSuper()) return DB.siti;
@@ -780,7 +833,7 @@ function renderSitoBar(showIt){
   if(siti.length>1){
     bar.innerHTML=`<span class="sb-l">Stai compilando per</span>
       <select id="sb-sel">${siti.map(s=>`<option value="${s.id}" ${s.id===cur?"selected":""}>${esc(s.nome)}</option>`).join("")}</select>`;
-    $("#sb-sel").onchange=e=>{SITO_SEL=+e.target.value;SA_SEL=null;SA_PIU=[];renderSitoBar(true);reRenderCurrent();};
+    $("#sb-sel").onchange=e=>{SITO_SEL=+e.target.value;SA_SEL=null;SA_PIU=[];CP_BOZZA={};CP_CAT=null;renderSitoBar(true);reRenderCurrent();};
   } else {
     bar.innerHTML=`<span class="sb-l">Stai compilando per</span><span class="sb-site">📍 ${esc(siti[0]?siti[0].nome:"—")}</span>`;
   }
@@ -935,6 +988,8 @@ function rigaScadenza(i, consentiRevoca){
     if(ritImp.length){ const g=ritImp.reduce((s,r)=>s+(+r.giorni||0),0);
       const cs=[...new Set(ritImp.map(r=>r.causa).filter(Boolean))].join(", ");
       ritHtml+=`<div class="rit-note">⚠ Ritardo imputabile: ${g} gg${cs?` — ${esc(cs)}`:''}</div>`; }
+    const ggAp=(i.ritardi||[]).filter(r=>!r.risolto).reduce((s,r)=>s+(+r.giorni||0),0);
+    if(ggAp) ritHtml+=`<div class="rit-note">⏱ Ancora aperto: ${ggAp} gg — il Gantt è slittato di altrettanto. Si chiude dalla compilazione, spuntando «risolto» sulla lavorazione.</div>`;
     return `<div class="scad-row">
       <div class="scad-top">
         <span class="scad-nome">${esc(i.nome)}${i.sito?` <span class="muted">· ${esc(i.sito)}</span>`:''}${i.lotto&&i.lotto!=="Intero sito"?` <span class="lotto-tag urg">${esc(i.lotto)}</span>`:''}</span>
@@ -1081,7 +1136,6 @@ async function rSito(){
      <div class="k"><b>${eur(c.budgetTot)}</b><span>Budget materiali/preventivi</span></div>
    </div>
    <div class="card"><h2>📍 ${esc(s.nome)} — avanzamento per categoria</h2>
-     ${R.pesoTot && Math.abs(R.pesoTot-1)>0.001?`<div class="banner">I pesi delle categorie sommano ${Math.round(R.pesoTot*100)}% (ricalibrati automaticamente sui presenti).</div>`:""}
      ${catsHtml||'<p class="muted">Nessun intervento attivo: configura il sito nel Setup.</p>'}
    </div>
    ${renderScadenze(scad,"Scadenze e ritardi",false)}
@@ -1113,10 +1167,21 @@ const gtHexA = (hex,a) => hex+Math.round(a*255).toString(16).padStart(2,"0");
 function gtAllarme(r){
   const st=r.st, p=r.p;
   if(r.si._err_scadenza) return `Scadenza non valida (${r.si._err_scadenza}): correggila nel Setup`;
-  if(st.k==="impossibile") return `Finisce il ${gtData(p.fine)}, ${p.ritardo} ${p.ritardo===1?"giorno":"giorni"} dopo la scadenza`;
+  if(p.concluso && p.scartoReale!=null){
+    const verbo = p.fine<=oggi() ? "Chiusa il" : "Fine aggiornata al";
+    return p.scartoReale<0
+      ? `${verbo} ${gtData(p.fine)}, ${-p.scartoReale} ${p.scartoReale===-1?"giorno":"giorni"} in anticipo sul piano`
+      : p.scartoReale>0
+        ? `${verbo} ${gtData(p.fine)}, ${p.scartoReale} ${p.scartoReale===1?"giorno":"giorni"} oltre il piano`
+        : `${verbo} ${gtData(p.fine)}, in linea col piano`;
+  }
+  if(p.slitta>0 && !["impossibile","tardi"].includes(st.k))
+    return `Slittata di ${p.slitta} ${p.slitta===1?"giorno":"giorni"} per ritardi ancora aperti`;
+  const slit = p.slitta>0 ? ` (${p.slitta} gg di ritardo aperto)` : "";
+  if(st.k==="impossibile") return `Finisce il ${gtData(p.fine)}, ${p.ritardo} ${p.ritardo===1?"giorno":"giorni"} dopo la scadenza${slit}`;
   if(st.k==="tardi")  return st.disp<0
-    ? `Scadenza superata da ${-st.disp} ${st.disp===-1?"giorno":"giorni"}, servono ancora ${st.residua} gg`
-    : `Servono ancora ${st.residua} gg, ne restano ${st.disp}: ${st.scoperto} ${st.scoperto===1?"giorno":"giorni"} di scoperto`;
+    ? `Scadenza superata da ${-st.disp} ${st.disp===-1?"giorno":"giorni"}, servono ancora ${st.residua} gg${slit}`
+    : `Servono ancora ${st.residua} gg, ne restano ${st.disp}: ${st.scoperto} ${st.scoperto===1?"giorno":"giorni"} di scoperto${slit}`;
   if(st.k==="stretto")return `Margine stretto: ${st.residua} gg necessari su ${st.disp} disponibili`;
   if(st.k==="ciclo")  return `Dipendenza circolare: correggila nel Setup`;
   if(st.k==="noscad") return `Scadenza da inserire`;
@@ -1131,7 +1196,16 @@ async function rGantt(){
   const oggiStr=oggi(), righe=[], lotti=new Set();
   for(const {sito,D,R} of dati){
     const attive=D.sito_interventi.filter(x=>x.attivo&&!x.annullato);
-    const plan=pianifica(attive);
+    // lo scostamento dal piano: ritardi non ancora risolti e date reali di inizio/fine
+    const extra=new Map();
+    for(const si of attive){
+      const slitta=D.ritardi.filter(r=>r.sito_intervento_id===si.id && !r.risolto)
+                            .reduce((t,r)=>t+(+r.giorni||0),0);
+      const dl=(D.date_lavorazione||[]).find(x=>x.sito_intervento_id===si.id)||{};
+      if(slitta || dl.data_inizio_eff || dl.data_fine_eff)
+        extra.set(si.id,{slitta, inizioEff:dl.data_inizio_eff||null, fineEff:dl.data_fine_eff||null});
+    }
+    const plan=pianifica(attive, extra);
     for(const si of attive){
       const intv=DB.interventi.find(i=>i.id===si.intervento_id)||{};
       const p=plan.get(si.id)||{};
@@ -1232,7 +1306,7 @@ function disegnaGantt(mantieniScroll){
     const pred=r.si.dipende_da ? M.idDi.get(r.si.dipende_da) : null;
     const predTxt = pred ? String(pred.id) : (r.si.dipende_da ? `<span title="${esc(r.p.predNome||"predecessore fuori vista")}">↗</span>` : "");
     const al=gtAllarme(r);
-    const tip=esc(`${r.intv.nome} · ${nomeSito(r.sito)}\n${r.p.durata} gg · ${gtData(r.p.inizio)} → ${gtData(r.p.fine)}${r.si.scadenza?` · scadenza ${gtData(r.si.scadenza)}`:""}\nAvanzamento ${pct}% · ${r.st.l}${r.lotto!=="Intero sito"?" · "+r.lotto:""}${al?"\n"+al:""}`);
+    const tip=esc(`${r.intv.nome} · ${nomeSito(r.sito)}\n${r.p.durata} gg · ${gtData(r.p.inizio)} → ${gtData(r.p.fine)}${r.si.scadenza?` · scadenza ${gtData(r.si.scadenza)}`:""}\nAvanzamento ${pct}% · ${r.st.l}${r.lotto!=="Intero sito"?" · "+r.lotto:""}${r.p.slitta>0?`\nSlittamento per ritardi aperti: ${r.p.slitta} gg`:""}${al?"\n"+al:""}`);
     const scad = r.si.scadenza && toD(r.si.scadenza) ? `<span class="gdl" style="left:${M.x(r.si.scadenza)+M.pxg}px" title="Scadenza ${gtData(r.si.scadenza)}">▼</span>` : "";
     return `<div class="gp-r task">
       <div class="gp-l"><div class="c-id">${r.id}</div><div class="c-ind">${cellaInd(r)}</div>
@@ -1503,6 +1577,82 @@ function dettaglioSito(voce){
       :'<p class="muted" style="margin-top:8px">Tocca una riga per aprire quella categoria nel Setup di questo sito.</p>'}
   </div>`;
 }
+/* ---- periodo isolato: che cosa è stato fatto fra due date ----
+   Non tocca i numeri della dashboard: confronta due fotografie dello stesso
+   motore di calcolo (al giorno prima dell'inizio e alla fine) e mostra la differenza. */
+let PER_DA=null, PER_A=null, PER_APERTO=false;
+window.perToggle = ap => { PER_APERTO=!!ap; };
+window.setPeriodo = (k,v) => {
+  if(k==="da") PER_DA=v||null;
+  else if(k==="a") PER_A=v||null;
+  else if(k==="gg"){ PER_A=oggi(); PER_DA=addGG(PER_A,-(+v-1)); }
+  else if(k==="mese"){ const o=oggi(); PER_DA=o.slice(0,8)+"01"; PER_A=o; }
+  PER_APERTO=true; rDash();
+};
+function pannelloPeriodo(all){
+  const a  = PER_A || oggi();
+  const da = PER_DA || addGG(a,-29);
+  const testata = `<div class="per-f">
+      <div class="field"><label>Dal</label><input type="date" ${DATA_ATTR} value="${da}" onchange="setPeriodo('da',this.value)"></div>
+      <div class="field"><label>Al</label><input type="date" ${DATA_ATTR} value="${a}" onchange="setPeriodo('a',this.value)"></div>
+      <div class="per-rap">
+        <button onclick="setPeriodo('gg',7)">ultimi 7 giorni</button>
+        <button onclick="setPeriodo('gg',30)">ultimi 30</button>
+        <button onclick="setPeriodo('gg',90)">ultimi 90</button>
+        <button onclick="setPeriodo('mese')">mese corrente</button>
+      </div></div>`;
+  if(da>a) return {testata, corpo:`<div class="banner">La data iniziale è successiva a quella finale.</div>`};
+  const prima = addGG(da,-1);
+  const dentro = d => d && d>=da && d<=a;
+  const righe = all.map(({sito,D})=>{
+    const R0=calcSito(sito.id,D,prima), R1=calcSito(sito.id,D,a);
+    const matDi = R => R.costi.costoMatInhouse + R.costi.costoMatTerzi;
+    const conDi = R => R.costi.ore + R.costi.macchine + R.costi.carburanti;
+    const mosse = R1.perInt.map(x=>{
+        const q=R0.perInt.find(y=>y.si_id===x.si_id)||{avz:0};
+        return {nome:x.nome, pre:q.avz, post:x.avz, val:x.budgetEff*(x.avz-q.avz)};
+      }).filter(x=>Math.abs(x.post-x.pre)>0.0005).sort((x,y)=>(y.post-y.pre)-(x.post-x.pre));
+    return {sito, mosse,
+      avz0:R0.avz, avz1:R1.avz, gg0:R0.avzGG, gg1:R1.avzGG,
+      mat: matDi(R1)-matDi(R0), cons: conDi(R1)-conDi(R0),
+      ore: D.ore_uomo.filter(o=>dentro(o.data)).reduce((t,o)=>t+(+o.ore||0),0),
+      mac: D.macchine_giorno.filter(m=>m.presente&&dentro(m.data)).length,
+      lit: D.carburanti.filter(g=>dentro(g.data)).reduce((t,g)=>t+(+g.litri_gasolio||0)+(+g.litri_benzina||0),0),
+      rit: D.ritardi.filter(r=>dentro(r.data)).reduce((t,r)=>t+(+r.giorni||0),0)};
+  });
+  const T = righe.reduce((t,r)=>({mat:t.mat+r.mat,cons:t.cons+r.cons,ore:t.ore+r.ore,
+    mac:t.mac+r.mac,lit:t.lit+r.lit,rit:t.rit+r.rit,n:t.n+r.mosse.length}),
+    {mat:0,cons:0,ore:0,mac:0,lit:0,rit:0,n:0});
+  const num = v => v.toLocaleString("it-IT",{maximumFractionDigits:1});
+  const pt  = v => Math.round(v*1000)/10;
+  const attive = righe.filter(r=>r.mosse.length||r.ore||r.mac||r.lit);
+  const corpo = `
+    <div class="scroll-x"><table class="grid">
+      <tr><th>Sito</th><th title="indice finanziario a inizio e fine periodo">Avanz. finanz.</th>
+        <th title="indice lavori a inizio e fine periodo">Avanz. lavori</th>
+        <th title="budget maturato grazie all'avanzamento registrato nel periodo">Valore maturato</th>
+        <th title="ore, macchine e carburanti del periodo">Consuntivo</th>
+        <th>Ore</th><th>Giornate<br>macchina</th><th>Litri</th><th>Giorni<br>fermo</th></tr>
+      ${righe.map(r=>`<tr>
+        <td>${esc(nomeSito(r.sito))}</td>
+        <td>${pt(r.avz0)}% → <b>${pt(r.avz1)}%</b></td>
+        <td>${pt(r.gg0)}% → <b>${pt(r.gg1)}%</b></td>
+        <td>${eur(r.mat)}</td><td>${eur(r.cons)}</td>
+        <td>${num(r.ore)}</td><td>${r.mac}</td><td>${num(r.lit)}</td><td>${r.rit||"—"}</td></tr>`).join("")}
+      <tr><td><b>TOTALE</b></td><td></td><td></td><td><b>${eur(T.mat)}</b></td><td><b>${eur(T.cons)}</b></td>
+        <td><b>${num(T.ore)}</b></td><td><b>${T.mac}</b></td><td><b>${num(T.lit)}</b></td><td><b>${T.rit||"—"}</b></td></tr>
+    </table></div>
+    ${attive.length?attive.map(r=>`<details class="sg-sito" style="margin-top:8px"><summary>
+        <span class="sg-nome">${esc(nomeSito(r.sito))}</span>
+        <span class="sg-apri">${r.mosse.length} ${r.mosse.length===1?"lavorazione mossa":"lavorazioni mosse"}</span></summary>
+      <div class="sg-body"><div class="per-mosse">${r.mosse.length?r.mosse.map(m=>`<div>
+          <span>${esc(m.nome)}</span><b>${pt(m.pre)}% → ${pt(m.post)}% · ${eur(m.val)}</b></div>`).join("")
+        :'<p class="muted">Nessun avanzamento registrato: solo consuntivo (ore, macchine, carburanti).</p>'}</div></div>
+      </details>`).join("")
+      :'<p class="muted" style="margin-top:10px">In questo periodo non risulta registrato nulla.</p>'}
+    <p class="muted" style="margin-top:10px">Il <b>valore maturato</b> è il budget sbloccato dall'avanzamento registrato nel periodo; il <b>consuntivo</b> sono ore, macchine e carburanti dello stesso periodo. I due indici sono quelli della heatmap, fotografati all'inizio e alla fine. Le registrazioni si contano per la data indicata in compilazione, non per quella di inserimento.</p>`;
+  return {testata, corpo};
+}
 let chRef=null;
 async function rDash(){
   const all = await calcTutti();
@@ -1535,11 +1685,20 @@ async function rDash(){
     vistaPer(R).forEach(pc=>{catAvz[sito.id][pc.id]=pc.avz;catBud[sito.id][pc.id]=pc.budget;});});
   let catCols = vistaCols().filter(c=>all.some(({sito})=>catAvz[sito.id][c.id]!==undefined));
   if(!catCols.length) catCols = vistaCols();
-  const heatCell=f=>{ if(f===undefined) return `<td style="background:#E6E8E1;color:var(--mut)">—</td>`;
+  const heatCell=(f,cls)=>{ const k=cls?` class="${cls}"`:"";
+    if(f===undefined||f===null) return `<td${k} style="background:#E6E8E1;color:var(--mut);text-align:center">—</td>`;
     const v=Math.round(f*100); const bg=f>=0.75?"#1F5C2E":f>=0.5?"#4E8A3A":f>=0.25?"#8CBF66":f>0?"#CFE3B4":"#EEE";
-    const col=f>=0.5?"#fff":"#1A2418"; return `<td style="background:${bg};color:${col};text-align:center;font-weight:700">${v}%</td>`;};
-  const heat = `<table class="grid"><tr><th>Sito</th>${catCols.map(c=>`<th title="${esc(c.nome)}" style="text-align:center">${esc(c.nome.slice(0,9))}</th>`).join("")}</tr>
-    ${all.map(({sito})=>`<tr><td>${esc(nomeSito(sito))}</td>${catCols.map(c=>heatCell(catAvz[sito.id][c.id])).join("")}</tr>`).join("")}</table>`;
+    const col=f>=0.5?"#fff":"#1A2418"; return `<td${k} style="background:${bg};color:${col};text-align:center;font-weight:700">${v}%</td>`;};
+  // indicatore sintetico: nessun colore, perché non esiste un verso giusto
+  const cellaRapporto = v => v==null
+    ? `<td class="muted" style="text-align:center">—</td>`
+    : `<td style="text-align:center;font-weight:800">${v.toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>`;
+  const heat = `<table class="grid"><tr><th>Sito</th>${catCols.map(c=>`<th title="${esc(c.nome)}" style="text-align:center">${esc(c.nome.slice(0,9))}</th>`).join("")}
+      <th class="hm-sep" style="text-align:center" title="avanzamento pesato sugli euro di budget">Indice<br>finanz.</th>
+      <th style="text-align:center" title="stesso avanzamento, pesato sulle giornate previste nel Setup">Indice<br>lavori</th>
+      <th style="text-align:center" title="rapporto fra i due indici: 1 = stesso passo">Costi /<br>giornate</th></tr>
+    ${all.map(({sito,R})=>`<tr><td>${esc(nomeSito(sito))}</td>${catCols.map(c=>heatCell(catAvz[sito.id][c.id])).join("")}
+      ${heatCell(R.avz,"hm-sep")}${heatCell(R.avzGG)}${cellaRapporto(R.indice)}</tr>`).join("")}</table>`;
   // budget per colonna della vista
   const budCol = catCols.map(c=>({nome:c.nome, budget:all.reduce((s2,{sito})=>s2+(catBud[sito.id][c.id]||0),0),
     avz:(()=>{let b=0,bs=0;all.forEach(({sito,R})=>{const v=vistaPer(R).find(x=>x.id===c.id);if(v){b+=v.budget;bs+=v.budget*v.avz;}});return b>0?bs/b:0;})()}));
@@ -1571,6 +1730,9 @@ async function rDash(){
      ${kpiBudgetManuale("budget_previsto","Budget previsto",T.budget)}
    </div>
    ${segnalazioni(all)}
+   ${(()=>{const P2=pannelloPeriodo(all);return `<details class="card pan" ${PER_APERTO?"open":""} ontoggle="perToggle(this.open)">
+     <summary class="pan-h"><span class="pan-t">Periodo di lavoro</span><span class="pan-apri">apri</span></summary>
+     <div class="pan-b">${P2.testata}${P2.corpo}</div></details>`;})()}
    <div class="switch">
      <button class="${VISTA==="categorie"?"on":""}" onclick="setVista('categorie')">Per lavorazione</button>
      <button class="${VISTA==="perizia"?"on":""}" onclick="setVista('perizia')">Per categoria perizia</button>
@@ -1583,7 +1745,8 @@ async function rDash(){
      <table class="grid"><tr><th>Sito</th><th>Avz.</th><th>Ettari</th><th>Interno</th><th>Conto terzi</th><th>Consuntivo</th><th>Totale</th><th>Budget setup</th><th>Perizia</th><th>Scost. perizia</th></tr>${cons}</table>
    </div><p class="muted" style="margin-top:8px">Il <b>consuntivo</b> è ore, macchine e carburanti; il <b>totale</b> lo somma ai materiali e preventivi maturati. Il <b>budget setup</b> nasce dalle lavorazioni inserite, la <b>perizia</b> si scrive a mano e lo scostamento è la differenza fra le due. Tocca un sito per vederne budget e avanzamento per categoria.</p></div>
    ${dettCorr?dettaglioSito(dettCorr):""}
-   <div class="card"><h2>Heatmap avanzamento (sito × ${VISTA==="perizia"?"categoria perizia":"categoria"})</h2><div class="scroll-x">${heat}</div></div>
+   <div class="card"><h2>Heatmap avanzamento (sito × ${VISTA==="perizia"?"categoria perizia":"categoria"})</h2><div class="scroll-x">${heat}</div>
+     <p class="muted" style="margin-top:8px">Le ultime tre colonne leggono lo stesso avanzamento in due modi. L'<b>indice finanziario</b> pesa ogni lavorazione per i suoi euro di budget; l'<b>indice lavori</b> la pesa per le giornate previste nel Setup. Il <b>rapporto</b> fra i due dice su che cosa si è concentrato il lavoro: intorno a 1 i due passi coincidono; sopra 1 l'avanzamento sta su lavorazioni care e brevi, quindi manodopera risparmiata (ma può anche essere materiale acquistato in anticipo, e allora il risparmio è apparente); sotto 1 su lavorazioni lunghe e poco costose, cioè molte giornate per poco budget maturato. Non è un voto: è una domanda da porsi.</p></div>
    <div class="dash-due">
    <div class="card"><h2>Efficienza dei siti a confronto</h2>
      <p class="muted" style="margin-bottom:12px">Indicatori confrontabili tra siti. Verde = buono, rosso = critico. €/ha e giorni fermo: colore relativo al portfolio (più basso = meglio).</p>
@@ -1745,50 +1908,101 @@ async function rCompila(){
       .filter(a=>a.sito_intervento_id===siid && (a.sotto_area_id??null)===id).map(a=>+a.pct||0)));
     return v.every(x=>x===v[0]) ? v[0] : 0;
   };
-  // ultima nota scritta su quella lavorazione, nell'ambito (sito o sotto-area) in cui si sta compilando
+  // ultima nota scritta su quella lavorazione, nell'ambito (sito o sotto-area) in cui si sta compilando:
+  // resta visibile nelle compilazioni dei giorni successivi finche' qualcuno non la cambia
   const notaDi = siid => {
     const righe=D.avanzamenti.filter(a=>a.nota && String(a.nota).trim() &&
       (a.sito_intervento_id===siid ||
        (D.sottovoci||[]).some(sv=>sv.id===a.sottovoce_id && sv.sito_intervento_id===siid)) &&
       saIds.includes(a.sotto_area_id??null));
-    if(!righe.length) return "";
+    if(!righe.length) return null;
     righe.sort((x,y)=>String(x.data).localeCompare(String(y.data))||(x.id-y.id));
-    return righe[righe.length-1].nota;
+    return righe[righe.length-1];
   };
   const rigaNota = si => {
-    const t=notaDi(si.id);
-    return `<div class="cp-nota-r"><input class="cp-nota" data-nota="${si.id}" value="${esc(t)}"
-      maxlength="300" placeholder="nota (facoltativa): ostacoli, dettagli, cosa resta da fare"></div>`;
+    const n=notaDi(si.id);
+    const k="nota:"+si.id;
+    const v=(k in CP_BOZZA)?CP_BOZZA[k]:(n?n.nota:"");
+    return `<div class="cp-nota-r"><input class="cp-nota" data-nota="${si.id}" value="${esc(v)}"
+      maxlength="300" placeholder="nota (facoltativa): ostacoli, dettagli, cosa resta da fare">
+      ${n?`<div class="cp-nota-f">scritta il ${dataIt(n.data)}${n.compilatore?` da ${esc(n.compilatore)}`:""} — resta qui finché non la riscrivi</div>`:""}</div>`;
+  };
+  // ritardi ancora aperti su quella lavorazione: restano in vista finché non si spunta "risolto"
+  const ritApertiDi = siid => D.ritardi.filter(r=>r.sito_intervento_id===siid && !r.risolto);
+  const rigaRitardi = si => {
+    const rs=ritApertiDi(si.id);
+    if(!rs.length) return "";
+    const tot=rs.reduce((t,r)=>t+(+r.giorni||0),0);
+    return `<div class="cp-rit">
+      <div class="cp-rit-h">⏱ Ritardo aperto: ${tot} ${tot===1?"giorno":"giorni"} — il Gantt è già slittato di altrettanto</div>
+      ${rs.map(r=>`<label class="cp-rit-r"><input type="checkbox" data-risolto="${r.id}">
+        <span>${esc(r.causa||"ritardo")} · ${r.giorni} gg · segnalato il ${dataIt(r.data)}${
+          r.forza_maggiore?' · <span class="int-scad-p">forza maggiore</span>':''}${
+          r.nota?` · ${esc(r.nota)}`:''}</span><b>risolto</b></label>`).join("")}</div>`;
+  };
+  // date reali di inizio e fine: le scrive chi compila, il piano resta quello del Setup
+  const dlDi = siid => (D.date_lavorazione||[]).find(x=>x.sito_intervento_id===siid)||{};
+  const finePiano = si => (si.data_inizio && si.durata_giorni) ? addGG(si.data_inizio,+si.durata_giorni-1) : null;
+  const rigaDate = si => {
+    const d=dlDi(si.id), fp=finePiano(si);
+    return `<div class="cp-date" data-dl="${si.id}">
+      <div class="field"><label>Inizio effettivo</label><input type="date" class="cp-di" ${DATA_ATTR} value="${d.data_inizio_eff||""}"></div>
+      <div class="field"><label>Fine effettiva</label><input type="date" class="cp-df" ${DATA_ATTR} value="${d.data_fine_eff||""}"></div>
+      <div class="field cp-dn-f"><label>Perché (resta scritto)</label><input class="cp-dn" maxlength="200"
+        value="${esc(d.nota||"")}" placeholder="motivo dello scostamento dalle date di piano"></div>
+      <div class="cp-dpiano">Piano: ${si.data_inizio?dataIt(si.data_inizio):"—"} → ${fp?dataIt(fp):"—"}${
+        si.durata_giorni?` · ${si.durata_giorni} gg`:""}${si.scadenza?` · scadenza ${dataIt(si.scadenza)}`:""}. Le date qui sopra si salvano da sole e spostano il Gantt.</div>
+    </div>`;
   };
   const intDi = c => attivi.filter(si=>{const i=DB.interventi.find(x=>x.id===si.intervento_id);return i&&i.categoria_id===c.id;});
   const cats = DB.categorie.filter(c=>intDi(c).length);
-  const avzHtml = cats.map(c=>`<div class="cat-block"><h3 class="cat-h">${esc(c.nome)}</h3>`+
+  // si compila una categoria alla volta: tutto insieme e' una lista troppo lunga per il campo
+  if(CP_CAT!=="*" && !cats.some(c=>c.id===CP_CAT)) CP_CAT = cats.length?cats[0].id:"*";
+  const catsVis = CP_CAT==="*" ? cats : cats.filter(c=>c.id===CP_CAT);
+  // quanto e' stato indicato ma non ancora inviato: la bozza sopravvive al cambio di categoria
+  const val = (k,def) => (k in CP_BOZZA) ? CP_BOZZA[k] : def;
+  const idsVisibili = new Set(catsVis.flatMap(c=>intDi(c).map(si=>si.id)));
+  const pendenti = new Set();
+  for(const k of Object.keys(CP_BOZZA)){
+    const [t,id]=k.split(":");
+    let siid = t==="sv" ? ((D.sottovoci||[]).find(x=>x.id===+id)||{}).sito_intervento_id : +id;
+    if(siid && !idsVisibili.has(siid)) pendenti.add(siid);
+  }
+  const avzHtml = catsVis.map(c=>`<div class="cat-block">${CP_CAT==="*"?`<h3 class="cat-h">${esc(c.nome)}</h3>`:""}`+
     intDi(c).map(si=>{
       const intv=DB.interventi.find(x=>x.id===si.intervento_id);
       if(intv.tipo==="piante"){
-        const prev=+si.piante_previste||0, cur=maxPiante(si.id);
+        const prev=+si.piante_previste||0, cur=val("pz:"+si.id, maxPiante(si.id));
         if(saIds.length>1) return `<div class="int-block">
           <div class="int-t">${esc(intv.nome)} <span class="muted">— piante</span></div>
-          ${scadHtml(si)}
-          <p class="muted"><span class="flag-y">⚠️</span> Le piante si contano una zona alla volta: lascia selezionata una sola area per registrarle.</p></div>`;
+          ${scadHtml(si)}${rigaRitardi(si)}
+          <p class="muted"><span class="flag-y">⚠️</span> Le piante si contano una zona alla volta: lascia selezionata una sola area per registrarle.</p>
+          ${rigaDate(si)}</div>`;
         return `<div class="int-block" data-piante="${si.id}">
           <div class="int-t">${esc(intv.nome)} <span class="muted">— piante messe / ${prev||"?"}</span></div>
-          ${scadHtml(si)}
+          ${scadHtml(si)}${rigaRitardi(si)}
           <input type="number" class="cp-piante" value="${cur||""}" placeholder="totale piante messe a dimora">
-          ${rigaNota(si)}</div>`;
+          ${rigaNota(si)}${rigaDate(si)}</div>`;
       }
       // dove si compila per sotto-area, le sotto-voci lasciano il posto: una sola fascia
       const svs=si.per_sotto_area?[]:D.sottovoci.filter(s=>s.sito_intervento_id===si.id);
       return `<div class="int-block">
         <div class="int-t">${esc(intv.nome)}${si.modalita==="conto_terzi"?' <span class="tag">conto terzi</span>':''}</div>
-        ${scadHtml(si)}
-        ${svs.length? svs.map(sv=>`<div class="sv-av" data-svid="${sv.id}"><label>${esc(sv.nome)}</label>${fasceWidget(maxPct(sv.id))}</div>`).join("")
-                    : `<div class="sv-av" data-iav="${si.id}"><label class="muted">Avanzamento dell'intervento</label>${fasceWidget(maxPctInt(si.id))}</div>`}
-        ${rigaNota(si)}
+        ${scadHtml(si)}${rigaRitardi(si)}
+        ${svs.length? svs.map(sv=>`<div class="sv-av" data-svid="${sv.id}"><label>${esc(sv.nome)}</label>${fasceWidget(val("sv:"+sv.id, maxPct(sv.id)))}</div>`).join("")
+                    : `<div class="sv-av" data-iav="${si.id}"><label class="muted">Avanzamento dell'intervento</label>${fasceWidget(val("iav:"+si.id, maxPctInt(si.id)))}</div>`}
+        ${rigaNota(si)}${rigaDate(si)}
       </div>`;
     }).join("")+`</div>`).join("");
+  const catSel = cats.length<2 ? "" : `<div class="field cp-cat-f"><label>Categoria di lavorazioni</label>
+    <select id="c-cat" onchange="setCpCat(this.value)">
+      ${cats.map(c=>`<option value="${c.id}" ${CP_CAT===c.id?"selected":""}>${esc(c.nome)} — ${intDi(c).length} ${intDi(c).length===1?"lavorazione":"lavorazioni"}</option>`).join("")}
+      <option value="*" ${CP_CAT==="*"?"selected":""}>— tutte le categorie insieme —</option>
+    </select>
+    ${pendenti.size?`<div class="cp-pend">⚠️ Hai indicato qualcosa in ${pendenti.size} ${pendenti.size===1?"lavorazione":"lavorazioni"} di altre categorie: resta in memoria e parte con «Invia compilazione».</div>`:""}</div>`;
   const intOpts = attivi.map(si=>{const i=DB.interventi.find(x=>x.id===si.intervento_id);return `<option value="${si.id}">${esc(i?i.nome:'?')}</option>`}).join("");
   let nc=0; const nn=()=>`<span class="n">${++nc}</span>`;
+  const nGiornata = nn();   // la giornata è sempre la prima scheda, anche dove c'è la sotto-area
   const areaSel = aree.find(a=>a.id===SA_SEL);
   const ambito = !aree.length ? "" : (SA_SEL==="sito" ? " — intero sito"
     : (saIds.length>1 ? ` — ${saIds.length} aree insieme` : ` — ${esc(areaSel?areaSel.nome:"")}`));
@@ -1805,36 +2019,82 @@ async function rCompila(){
     ${!divise.length?`<p class="muted" style="margin-top:8px"><span class="flag-y">⚠️</span> Nessuna lavorazione di questo sito è marcata «per sotto-area»: si compila tutto a livello di sito. Lo imposta il super user nel Setup.</p>`:""}
   </div>`;
   $("#pane-compila").innerHTML = `
-  <div class="card"><h2>${nn()}Giornata</h2>
+  <div class="card"><h2>${nGiornata}Giornata</h2>
     <div class="row2">
       <div class="field"><label>Data</label><input type="date" id="c-data" ${DATA_ATTR} value="${oggi()}"></div>
       <div class="field"><label>Compilatore</label><input id="c-comp" value="${esc(P.nome)}"></div>
     </div></div>
   ${cardArea}
   <div class="card"><h2>${nn()}Avanzamento${ambito}</h2>
-    <p class="muted">Indica la fascia raggiunta (cumulativa). Lascia n/d se non c'è avanzamento.</p>
+    <p class="muted">Indica la fascia raggiunta (cumulativa). Lascia n/d se non c'è avanzamento. Quello che indichi resta in memoria anche se cambi categoria: parte tutto insieme con «Invia compilazione».</p>
+    ${catSel}
     ${avzHtml||'<p class="muted">Nessuna lavorazione da compilare in questo ambito: controlla il Setup.</p>'}
   </div>
   <div class="card"><h2>${nn()}Ritardi / fermi</h2>
+    <p class="muted">Un ritardo segnalato su una lavorazione resta aperto e sposta il Gantt di altrettanti giorni, finché non lo spunti come risolto nella scheda della lavorazione qui sopra.</p>
     <div id="c-ri-list"></div>
     <button class="add" id="c-ri-add">+ Segnala ritardo</button>
   </div>
   <div class="err" id="c-err"></div>
   <button class="btn btn-p" id="c-invia">Invia compilazione</button>`;
-  // fasce
-  $$("#pane-compila .fasce").forEach(g=>g.querySelectorAll(".fascia").forEach(btn=>btn.onclick=()=>{
-    g.querySelectorAll(".fascia").forEach(b=>b.classList.remove("on"));btn.classList.add("on");}));
+  // fasce: ogni scelta finisce subito nella bozza, cosi' non si perde cambiando categoria
+  $$("#pane-compila .sv-av").forEach(r=>{
+    const k = r.dataset.svid ? "sv:"+r.dataset.svid : "iav:"+r.dataset.iav;
+    r.querySelectorAll(".fascia").forEach(btn=>btn.onclick=()=>{
+      r.querySelectorAll(".fascia").forEach(b=>b.classList.remove("on"));
+      btn.classList.add("on"); CP_BOZZA[k]=+btn.dataset.v||0;
+    });
+  });
+  $$("#pane-compila .cp-nota").forEach(i=>i.oninput=()=>{CP_BOZZA["nota:"+i.dataset.nota]=i.value;});
+  $$("#pane-compila [data-piante]").forEach(b=>{
+    const i=b.querySelector(".cp-piante");
+    if(i) i.oninput=()=>{CP_BOZZA["pz:"+b.dataset.piante]=+i.value||0;};
+  });
+  // "risolto": chiude il ritardo e restituisce al Gantt i giorni che aveva tolto
+  $$("#pane-compila [data-risolto]").forEach(c=>c.onchange=async()=>{
+    if(!c.checked) return;
+    c.disabled=true;
+    const {error}=await sb.from("ritardi").update({risolto:true,data_risoluzione:oggi()}).eq("id",+c.dataset.risolto);
+    if(error){ c.checked=false; c.disabled=false; return toast("Errore: ritardo non aggiornato"); }
+    toast("Ritardo risolto ✓"); rCompila();
+  });
+  // date effettive: si salvano da sole, come le ore e le macchine
+  $$("#pane-compila [data-dl]").forEach(box=>{
+    const siid=+box.dataset.dl;
+    const salva=async()=>{
+      const di=box.querySelector(".cp-di").value||null;
+      const df=box.querySelector(".cp-df").value||null;
+      const nt=(box.querySelector(".cp-dn").value||"").trim()||null;
+      if(di && !dataValida(di)) return toast("Data di inizio non valida");
+      if(df && !dataValida(df)) return toast("Data di fine non valida");
+      if(di && df && df<di)     return toast("La fine non può precedere l'inizio");
+      const {error}=await sb.from("date_lavorazione").upsert({sito_id:CC.sito,sito_intervento_id:siid,
+        data_inizio_eff:di, data_fine_eff:df, nota:nt,
+        aggiornato_il:new Date().toISOString(), aggiornato_da:(($("#c-comp")||{}).value||P.nome)},
+        {onConflict:"sito_intervento_id"});
+      if(error) return toast("Errore di salvataggio delle date");
+      const arr=CC.D.date_lavorazione||(CC.D.date_lavorazione=[]);
+      const ex=arr.find(x=>x.sito_intervento_id===siid);
+      if(ex) Object.assign(ex,{data_inizio_eff:di,data_fine_eff:df,nota:nt});
+      else arr.push({sito_id:CC.sito,sito_intervento_id:siid,data_inizio_eff:di,data_fine_eff:df,nota:nt});
+      toast("Date salvate ✓");
+    };
+    box.querySelectorAll(".cp-di,.cp-df").forEach(i=>i.onchange=salva);
+    box.querySelector(".cp-dn").onblur=salva;
+  });
   // ritardi
   const causaliOpts=DB.causali.map(c=>`<option value="${c.id}">${esc(c.nome)}${c.forza_maggiore?" (forza maggiore)":""}</option>`).join("");
-  const riRow=()=>`<div class="dyn-row" style="grid-template-columns:1.2fr .5fr 1.3fr auto">
+  const riRow=()=>`<div class="dyn-row" style="grid-template-columns:1.2fr .5fr 1.3fr 1.2fr auto">
     <select class="ri-int"><option value="">— intero sito —</option>${intOpts}</select>
     <input type="number" class="ri-gg" placeholder="giorni">
     <select class="ri-causa"><option value="">causale…</option>${causaliOpts}</select>
+    <input class="ri-nota" maxlength="200" placeholder="nota (facoltativa)">
     <button class="x" onclick="this.parentNode.remove()">×</button></div>`;
   $("#c-ri-add").onclick=()=>$("#c-ri-list").insertAdjacentHTML("beforeend",riRow());
   if($("#c-sa")) $("#c-sa").onchange=e=>{
     SA_SEL = e.target.value==="sito" ? "sito" : +e.target.value;
     SA_PIU = SA_SEL==="sito" ? [] : [SA_SEL];   // dal menù si sceglie una zona sola
+    CP_BOZZA = {};  // cambiando porzione di sito le fasce indicate non valgono piu'
     rCompila();   // cambia l'ambito: si ricarica quello che risulta gia' registrato lì
   };
   if($("#c-samap")) mappaScelta(aree, sito);
@@ -1847,11 +2107,12 @@ async function rCompila(){
         + (scelte.length>1?`<span class="sa-chip tot">${scelte.length} aree · ${ha(tot)}</span>`:"")
       : "";
     box.querySelectorAll("[data-via]").forEach(b=>b.onclick=()=>{
-      SA_PIU=SA_PIU.filter(x=>x!==+b.dataset.via); SA_SEL=SA_PIU[0]; rCompila();
+      SA_PIU=SA_PIU.filter(x=>x!==+b.dataset.via); SA_SEL=SA_PIU[0]; CP_BOZZA={}; rCompila();
     });
   }
   $("#c-invia").onclick=inviaCompilazione;
 }
+window.setCpCat = v => { CP_CAT = (v==="*") ? "*" : +v; rCompila(); };
 /* ---- mappa della compilazione: si tocca la zona invece di cercarla a menù ---- */
 let MS=null;
 async function mappaScelta(aree, sito){
@@ -1877,7 +2138,7 @@ async function mappaScelta(aree, sito){
       if(dentro && SA_PIU.length>1) SA_PIU=SA_PIU.filter(x=>x!==a.id);
       else if(!dentro) SA_PIU=[...SA_PIU, a.id];
       else return;                      // l'ultima area non si toglie
-      SA_SEL=SA_PIU[0]; rCompila();
+      SA_SEL=SA_PIU[0]; CP_BOZZA={}; rCompila();
     });
     p.on("mouseover",()=>{ if(SA_SEL!==a.id) p.setStyle({fillOpacity:0.3}); });
     p.on("mouseout", ()=>{ if(SA_SEL!==a.id) p.setStyle({fillOpacity:0.12}); });
@@ -1905,48 +2166,56 @@ async function inviaCompilazione(){
   if(!await confermaSito(sito,data,areaNome)) return;
   await sb.from("compilazioni").upsert({sito_id:sito,data,compilatore:comp},{onConflict:"sito_id,data"});
   const sa=CC.saId||null;   // null = registrato per il sito intero
-  // la nota di ciascuna lavorazione: si salva anche senza avanzamento, ma solo se è cambiata
-  const noteDa = {};
-  for(const i of $$("#pane-compila [data-nota]")){
-    const testo=(i.value||"").trim();
-    if(testo!==(i.defaultValue||"").trim()) noteDa[+i.dataset.nota]=testo;
+  /* Si invia quello che il FM ha effettivamente indicato, anche in categorie
+     che adesso non sono a video: la bozza e' la sola fonte. Quello che non ha
+     toccato non viene riscritto, cosi' due invii di fila non duplicano righe. */
+  const svPct={}, intPct={}, note={}, piante={};
+  for(const k of Object.keys(CP_BOZZA)){
+    const i=k.indexOf(":"), t=k.slice(0,i), id=+k.slice(i+1);
+    if(t==="sv")        svPct[id]=+CP_BOZZA[k]||0;
+    else if(t==="iav")  intPct[id]=+CP_BOZZA[k]||0;
+    else if(t==="nota") note[id]=(CP_BOZZA[k]||"").trim();
+    else if(t==="pz")   piante[id]=+CP_BOZZA[k]||0;
   }
-  const conNota = new Set(Object.keys(noteDa).map(Number));
-  for(const r of $$("#pane-compila .sv-av")){
-    const on=r.querySelector(".fascia.on"); const pct=+(on?on.dataset.v:0)||0;
-    if(r.dataset.svid){
-      if(pct<=0) continue;
-      const sv=(CC.D.sottovoci||[]).find(x=>x.id===+r.dataset.svid);
-      const siid=sv?sv.sito_intervento_id:null;
-      const nota = (siid && conNota.has(siid)) ? noteDa[siid] : null;
-      if(nota!==null) conNota.delete(siid);
-      await sb.from("avanzamenti").insert({sito_id:sito,sottovoce_id:+r.dataset.svid,data,compilatore:comp,pct,nota});
-    } else if(r.dataset.iav){
-      const siid=+r.dataset.iav;
-      const nota = conNota.has(siid) ? noteDa[siid] : null;
-      if(pct<=0 && nota===null) continue;          // niente da registrare
-      if(nota!==null) conNota.delete(siid);
-      const righe=ids.map(id=>({sito_id:sito,sito_intervento_id:siid,sotto_area_id:id,data,compilatore:comp,pct,nota}));
-      await sb.from("avanzamenti").insert(righe);
-    }
+  const conNota = new Set(Object.keys(note).map(Number));
+  const nRit = $$("#c-ri-list .dyn-row").filter(r=>(+r.querySelector(".ri-gg").value||0)>0).length;
+  if(!Object.keys(CP_BOZZA).length && !nRit)
+    return err("#c-err","Non c'è nulla da inviare: indica una fascia, scrivi una nota o segnala un ritardo. Le date effettive e i ritardi risolti si salvano da soli, senza invio.");
+  for(const svid of Object.keys(svPct).map(Number)){
+    const pct=svPct[svid]; if(pct<=0) continue;
+    const sv=(CC.D.sottovoci||[]).find(x=>x.id===svid);
+    const siid=sv?sv.sito_intervento_id:null;
+    const nota = (siid && conNota.has(siid)) ? note[siid] : null;
+    if(nota!==null) conNota.delete(siid);
+    await sb.from("avanzamenti").insert({sito_id:sito,sottovoce_id:svid,data,compilatore:comp,pct,nota});
+  }
+  for(const siid of Object.keys(intPct).map(Number)){
+    const pct=intPct[siid];
+    const nota = conNota.has(siid) ? note[siid] : null;
+    if(pct<=0 && nota===null) continue;          // niente da registrare
+    if(nota!==null) conNota.delete(siid);
+    await sb.from("avanzamenti").insert(
+      ids.map(id=>({sito_id:sito,sito_intervento_id:siid,sotto_area_id:id,data,compilatore:comp,pct,nota})));
   }
   // note di lavorazioni che non hanno fasce qui (piantumazione, o sotto-voci già salvate)
   for(const siid of conNota){
-    const righe=ids.map(id=>({sito_id:sito,sito_intervento_id:siid,sotto_area_id:id,data,compilatore:comp,pct:0,nota:noteDa[siid]}));
-    await sb.from("avanzamenti").insert(righe);
+    await sb.from("avanzamenti").insert(
+      ids.map(id=>({sito_id:sito,sito_intervento_id:siid,sotto_area_id:id,data,compilatore:comp,pct:0,nota:note[siid]})));
   }
-  for(const r of $$("#pane-compila [data-piante]")){
-    const v=+r.querySelector(".cp-piante").value||0;
-    if(v>0) await sb.from("avanz_piante").insert({sito_id:sito,sito_intervento_id:+r.dataset.piante,sotto_area_id:sa,data,compilatore:comp,piante:v});
+  for(const siid of Object.keys(piante).map(Number)){
+    if(piante[siid]>0) await sb.from("avanz_piante").insert({sito_id:sito,sito_intervento_id:siid,
+      sotto_area_id:sa,data,compilatore:comp,piante:piante[siid]});
   }
   for(const r of $$("#c-ri-list .dyn-row")){
     const gg=+r.querySelector(".ri-gg").value||0; if(gg<=0)continue;
     const si=r.querySelector(".ri-int").value;
     const cid=+r.querySelector(".ri-causa").value||0;
     const caus=DB.causali.find(c=>c.id===cid);
+    const nt=(r.querySelector(".ri-nota").value||"").trim()||null;
     await sb.from("ritardi").insert({sito_id:sito,sito_intervento_id:si?+si:null,data,giorni:gg,
-      causa:caus?caus.nome:null, forza_maggiore:caus?!!caus.forza_maggiore:false});
+      causa:caus?caus.nome:null, forza_maggiore:caus?!!caus.forza_maggiore:false, nota:nt, risolto:false});
   }
+  CP_BOZZA={};
   toast("Compilazione inviata ✓"); rCompila();
 }
 
@@ -2756,7 +3025,6 @@ async function rSetup(){
       <button class="btn btn-o btn-sm" data-s="macchine">Macchine</button>
       <button class="btn btn-o btn-sm" data-s="aree">Sotto-aree (mappa)</button>
       <button class="btn btn-o btn-sm" data-s="interventi">Interventi e sotto-voci</button>
-      <button class="btn btn-o btn-sm" data-s="pesi">Pesi categorie</button>
       <button class="btn btn-o btn-sm" data-s="assegnazioni">Assegnazioni FM</button>
     </div>
     <p class="muted" id="setup-stato" style="margin-top:10px">tutto salvato \u2713</p></div>
@@ -3177,37 +3445,6 @@ const SETUP = {
   SETUP_DIRTY=false; setupAggiornaStato();
  },
 
- /* ---- Pesi categorie (per sito) ---- */
- async pesi(){
-  const sid=+($("#w-sito")?.value||DB.siti[0].id);
-  const {data:sc}=await sb.from("sito_categorie").select("*").eq("sito_id",sid);
-  const {data:siAtt}=await sb.from("sito_interventi").select("intervento_id").eq("sito_id",sid).eq("attivo",true);
-  const catPresenti=new Set((siAtt||[]).map(x=>{const i=DB.interventi.find(j=>j.id===x.intervento_id);return i&&i.categoria_id;}));
-  const rows=DB.categorie.map(c=>{
-    const w=(sc||[]).find(x=>x.categoria_id===c.id)||{};
-    const pres=catPresenti.has(c.id);
-    return `<div class="dyn-row" style="grid-template-columns:1.5fr .6fr" data-cat="${c.id}">
-      <b style="align-self:center;${pres?"":"opacity:.45"}">${esc(c.nome)}${pres?"":' <span class="muted">(nessun intervento attivo)</span>'}</b>
-      <div><label>Peso %</label><input type="number" class="w-val" value="${w.peso_pct||0}"></div></div>`;
-  }).join("");
-  $("#setup-body").innerHTML=`<div class="card"><h2>Pesi delle categorie</h2>
-    <div class="field"><label>Sito</label><select id="w-sito">${DB.siti.map(s=>`<option value="${s.id}" ${s.id===sid?"selected":""}>${esc(s.nome)}</option>`).join("")}</select></div>
-    <p class="muted" id="w-sum"></p>
-    <p class="muted">I pesi dicono quanto ogni categoria incide sull'avanzamento del sito (e quindi sugli ettari). Il sistema <b>ricalibra automaticamente</b> sulle categorie presenti, quindi non devono per forza sommare 100 — ma è la situazione ideale.</p></div>
-    ${rows}<button class="btn btn-p" id="w-save">Salva pesi</button>`;
-  const upd=()=>{const t=$$(".w-val").reduce((s,i)=>s+(+i.value||0),0);
-    $("#w-sum").innerHTML=`Somma pesi: <b style="color:${t===100?'var(--forest)':'var(--gold)'}">${t}%</b>`;};
-  $$(".w-val").forEach(i=>i.oninput=upd);upd();
-  const salvaPesi=async(silenzioso)=>{
-    for(const r of $$("#setup-body [data-cat]"))
-      await sb.from("sito_categorie").upsert({sito_id:sid,categoria_id:+r.dataset.cat,peso_pct:+r.querySelector(".w-val").value||0},{onConflict:"sito_id,categoria_id"});
-    SETUP_DIRTY=false; setupAggiornaStato();
-    toast(silenzioso?"Modifiche salvate ✓":"Pesi salvati ✓");};
-  SETUP_SALVA=salvaPesi;
-  $("#w-sito").onchange=async()=>{ await setupAutoSalva(); SETUP.pesi(); };
-  $("#w-save").onclick=()=>salvaPesi(false);
-  SETUP_DIRTY=false; setupAggiornaStato();   // render pulito: nessuna modifica in sospeso
- },
 };
 
 async function anag(table,titolo,campi,perSito=false){
