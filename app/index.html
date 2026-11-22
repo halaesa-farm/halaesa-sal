@@ -228,6 +228,20 @@ details.pan .pan-b{padding:0 16px 16px}
 .cp-dn-f,.cp-dpiano{grid-column:1/-1}
 .cp-dpiano{font-size:11px;color:var(--mut)}
 @media(max-width:430px){.cp-date{grid-template-columns:1fr}}
+.cp-rit-ult{font-size:12px;color:var(--mut);margin-top:6px;padding-left:2px}
+.cp-stor{font-size:12px;margin-top:4px}
+.cp-stor summary{cursor:pointer;color:var(--forest);font-weight:700;list-style:none}
+.cp-stor summary::-webkit-details-marker{display:none}
+.cp-stor summary::before{content:"▸ ";font-size:10px}
+.cp-stor[open] summary::before{content:"▾ "}
+.cp-stor>div{color:var(--mut);padding:3px 0 3px 12px;border-bottom:1px dotted var(--bordo)}
+.cp-add{margin-top:8px}
+.cp-link{background:none;border:0;padding:0;font-size:12px;font-weight:700;color:var(--forest);
+  cursor:pointer;text-transform:none;letter-spacing:0}
+.cp-link:hover{text-decoration:underline}
+.cp-rit-new{display:grid;grid-template-columns:92px 1fr auto;gap:6px;margin-top:8px}
+.cp-rit-new input,.cp-rit-new select{font-size:13px;padding:8px 9px}
+@media(max-width:430px){.cp-rit-new{grid-template-columns:1fr}}
 .chk{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;margin:6px 0;cursor:pointer}
 .chk input{width:18px;height:18px}
 .chk2{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--mut)}
@@ -1653,6 +1667,33 @@ function pannelloPeriodo(all){
     <p class="muted" style="margin-top:10px">Il <b>valore maturato</b> è il budget sbloccato dall'avanzamento registrato nel periodo; il <b>consuntivo</b> sono ore, macchine e carburanti dello stesso periodo. I due indici sono quelli della heatmap, fotografati all'inizio e alla fine. Le registrazioni si contano per la data indicata in compilazione, non per quella di inserimento.</p>`;
   return {testata, corpo};
 }
+/* ---- registro dei ritardi: ogni segnalazione resta, aperta o chiusa ---- */
+let RIT_APERTO=false;
+window.ritToggle = ap => { RIT_APERTO=!!ap; };
+function pannelloRitardi(all){
+  const righe=[];
+  for(const {sito,D} of all){
+    for(const r of D.ritardi){
+      const si=D.sito_interventi.find(x=>x.id===r.sito_intervento_id);
+      const iv=si?DB.interventi.find(x=>x.id===si.intervento_id):null;
+      righe.push({sito:nomeSito(sito), lav: iv?iv.nome:"intero sito", r});
+    }
+  }
+  if(!righe.length) return `<p class="muted">Nessun ritardo segnalato finora.</p>`;
+  righe.sort((a,b)=>String(b.r.data).localeCompare(String(a.r.data))||(b.r.id-a.r.id));
+  const gg=l=>l.reduce((t,x)=>t+(+x.r.giorni||0),0);
+  const ap=righe.filter(x=>!x.r.risolto), ch=righe.filter(x=>x.r.risolto);
+  const gio=n=>`${n} ${n===1?"giorno":"giorni"}`;
+  return `<p class="muted">${righe.length} ${righe.length===1?"segnalazione":"segnalazioni"}: <b>${ap.length}</b> ${ap.length===1?"ancora aperta":"ancora aperte"} per ${gio(gg(ap))}, ${ch.length} ${ch.length===1?"chiusa":"chiuse"} per ${gio(gg(ch))}. Una segnalazione non si cancella: la spunta «risolto» in compilazione la chiude e la lascia qui.</p>
+    <div class="scroll-x"><table class="grid">
+      <tr><th>Data</th><th>Sito</th><th>Lavorazione</th><th style="text-align:right">Giorni</th><th>Causale</th><th>Stato</th></tr>
+      ${righe.map(x=>`<tr>
+        <td>${dataIt(x.r.data)}</td><td>${esc(x.sito)}</td><td>${esc(x.lav)}</td>
+        <td style="text-align:right">${x.r.giorni}</td>
+        <td>${esc(x.r.causa||"—")}${x.r.forza_maggiore?' <span class="int-scad-p">forza maggiore</span>':''}${x.r.nota?` · ${esc(x.r.nota)}`:''}</td>
+        <td>${x.r.risolto?`risolto il ${dataIt(x.r.data_risoluzione)||"—"}`:'<b>aperto</b>'}</td></tr>`).join("")}
+    </table></div>`;
+}
 let chRef=null;
 async function rDash(){
   const all = await calcTutti();
@@ -1733,6 +1774,9 @@ async function rDash(){
    ${(()=>{const P2=pannelloPeriodo(all);return `<details class="card pan" ${PER_APERTO?"open":""} ontoggle="perToggle(this.open)">
      <summary class="pan-h"><span class="pan-t">Periodo di lavoro</span><span class="pan-apri">apri</span></summary>
      <div class="pan-b">${P2.testata}${P2.corpo}</div></details>`;})()}
+   <details class="card pan" ${RIT_APERTO?"open":""} ontoggle="ritToggle(this.open)">
+     <summary class="pan-h"><span class="pan-t">Registro ritardi</span><span class="pan-apri">apri</span></summary>
+     <div class="pan-b">${pannelloRitardi(all)}</div></details>
    <div class="switch">
      <button class="${VISTA==="categorie"?"on":""}" onclick="setVista('categorie')">Per lavorazione</button>
      <button class="${VISTA==="perizia"?"on":""}" onclick="setVista('perizia')">Per categoria perizia</button>
@@ -1924,22 +1968,38 @@ async function rCompila(){
     const k="nota:"+si.id;
     const v=(k in CP_BOZZA)?CP_BOZZA[k]:(n?n.nota:"");
     return `<div class="cp-nota-r"><input class="cp-nota" data-nota="${si.id}" value="${esc(v)}"
-      maxlength="300" placeholder="nota (facoltativa): ostacoli, dettagli, cosa resta da fare">
-      ${n?`<div class="cp-nota-f">scritta il ${dataIt(n.data)}${n.compilatore?` da ${esc(n.compilatore)}`:""} — resta qui finché non la riscrivi</div>`:""}</div>`;
+      maxlength="300" placeholder="Note">
+      ${n?`<div class="cp-nota-f">${dataIt(n.data)}${n.compilatore?` · ${esc(n.compilatore)}`:""}</div>`:""}</div>`;
   };
-  // ritardi ancora aperti su quella lavorazione: restano in vista finché non si spunta "risolto"
-  const ritApertiDi = siid => D.ritardi.filter(r=>r.sito_intervento_id===siid && !r.risolto);
+  const causaliOpts=DB.causali.map(c=>`<option value="${c.id}">${esc(c.nome)}${c.forza_maggiore?" (forza maggiore)":""}</option>`).join("");
+  /* I ritardi non si cancellano mai: spuntare «risolto» li chiude e basta.
+     Nel blocco si vedono quelli aperti, l'ultima segnalazione anche se chiusa, e lo storico. */
+  const ritDi = siid => D.ritardi.filter(r=>r.sito_intervento_id===siid)
+      .sort((a,b)=>String(b.data).localeCompare(String(a.data))||(b.id-a.id));
+  const voceRit = r => `${esc(r.causa||"ritardo")} · ${r.giorni} gg · ${dataIt(r.data)}${
+      r.forza_maggiore?' · <span class="int-scad-p">forza maggiore</span>':''}${r.nota?` · ${esc(r.nota)}`:''}`;
   const rigaRitardi = si => {
-    const rs=ritApertiDi(si.id);
-    if(!rs.length) return "";
+    const tutti=ritDi(si.id);
+    if(!tutti.length) return "";
+    const rs=tutti.filter(r=>!r.risolto);
     const tot=rs.reduce((t,r)=>t+(+r.giorni||0),0);
-    return `<div class="cp-rit">
-      <div class="cp-rit-h">⏱ Ritardo aperto: ${tot} ${tot===1?"giorno":"giorni"} — il Gantt è già slittato di altrettanto</div>
+    let html = rs.length ? `<div class="cp-rit">
+      <div class="cp-rit-h">Ritardo aperto · ${tot} ${tot===1?"giorno":"giorni"}</div>
       ${rs.map(r=>`<label class="cp-rit-r"><input type="checkbox" data-risolto="${r.id}">
-        <span>${esc(r.causa||"ritardo")} · ${r.giorni} gg · segnalato il ${dataIt(r.data)}${
-          r.forza_maggiore?' · <span class="int-scad-p">forza maggiore</span>':''}${
-          r.nota?` · ${esc(r.nota)}`:''}</span><b>risolto</b></label>`).join("")}</div>`;
+        <span>${voceRit(r)}</span><b>Risolto</b></label>`).join("")}</div>` : "";
+    const ultimo=tutti[0];
+    if(ultimo.risolto) html += `<div class="cp-rit-ult">Ultima segnalazione: ${voceRit(ultimo)} · risolta il ${dataIt(ultimo.data_risoluzione)||"—"}</div>`;
+    if(tutti.length>1) html += `<details class="cp-stor"><summary>Storico ritardi (${tutti.length})</summary>
+      ${tutti.map(r=>`<div>${voceRit(r)} — ${r.risolto?`risolto il ${dataIt(r.data_risoluzione)||"—"}`:"aperto"}</div>`).join("")}</details>`;
+    return html;
   };
+  const rigaSegnala = si => `<div class="cp-add" data-rit="${si.id}">
+      <button type="button" class="cp-link cp-rit-add">+ Segnala un ritardo</button>
+      <div class="cp-rit-new hide">
+        <input type="number" class="rn-gg" min="1" placeholder="giorni">
+        <select class="rn-causa"><option value="">Causale</option>${causaliOpts}</select>
+        <button type="button" class="btn btn-p btn-sm rn-ok">Registra</button>
+      </div></div>`;
   // date reali di inizio e fine: le scrive chi compila, il piano resta quello del Setup
   const dlDi = siid => (D.date_lavorazione||[]).find(x=>x.sito_intervento_id===siid)||{};
   const finePiano = si => (si.data_inizio && si.durata_giorni) ? addGG(si.data_inizio,+si.durata_giorni-1) : null;
@@ -1948,10 +2008,10 @@ async function rCompila(){
     return `<div class="cp-date" data-dl="${si.id}">
       <div class="field"><label>Inizio effettivo</label><input type="date" class="cp-di" ${DATA_ATTR} value="${d.data_inizio_eff||""}"></div>
       <div class="field"><label>Fine effettiva</label><input type="date" class="cp-df" ${DATA_ATTR} value="${d.data_fine_eff||""}"></div>
-      <div class="field cp-dn-f"><label>Perché (resta scritto)</label><input class="cp-dn" maxlength="200"
-        value="${esc(d.nota||"")}" placeholder="motivo dello scostamento dalle date di piano"></div>
-      <div class="cp-dpiano">Piano: ${si.data_inizio?dataIt(si.data_inizio):"—"} → ${fp?dataIt(fp):"—"}${
-        si.durata_giorni?` · ${si.durata_giorni} gg`:""}${si.scadenza?` · scadenza ${dataIt(si.scadenza)}`:""}. Le date qui sopra si salvano da sole e spostano il Gantt.</div>
+      <div class="field cp-dn-f"><label>Note sulle date</label><input class="cp-dn" maxlength="200"
+        value="${esc(d.nota||"")}" placeholder="es. fermo per pioggia, chiusa in anticipo"></div>
+      <div class="cp-dpiano">Da piano: ${si.data_inizio?dataIt(si.data_inizio):"—"} → ${fp?dataIt(fp):"—"}${
+        si.durata_giorni?` · ${si.durata_giorni} gg`:""}${si.scadenza?` · scadenza ${dataIt(si.scadenza)}`:""}</div>
     </div>`;
   };
   const intDi = c => attivi.filter(si=>{const i=DB.interventi.find(x=>x.id===si.intervento_id);return i&&i.categoria_id===c.id;});
@@ -1977,12 +2037,12 @@ async function rCompila(){
           <div class="int-t">${esc(intv.nome)} <span class="muted">— piante</span></div>
           ${scadHtml(si)}${rigaRitardi(si)}
           <p class="muted"><span class="flag-y">⚠️</span> Le piante si contano una zona alla volta: lascia selezionata una sola area per registrarle.</p>
-          ${rigaDate(si)}</div>`;
+          ${rigaDate(si)}${rigaSegnala(si)}</div>`;
         return `<div class="int-block" data-piante="${si.id}">
           <div class="int-t">${esc(intv.nome)} <span class="muted">— piante messe / ${prev||"?"}</span></div>
           ${scadHtml(si)}${rigaRitardi(si)}
           <input type="number" class="cp-piante" value="${cur||""}" placeholder="totale piante messe a dimora">
-          ${rigaNota(si)}${rigaDate(si)}</div>`;
+          ${rigaNota(si)}${rigaDate(si)}${rigaSegnala(si)}</div>`;
       }
       // dove si compila per sotto-area, le sotto-voci lasciano il posto: una sola fascia
       const svs=si.per_sotto_area?[]:D.sottovoci.filter(s=>s.sito_intervento_id===si.id);
@@ -1991,16 +2051,15 @@ async function rCompila(){
         ${scadHtml(si)}${rigaRitardi(si)}
         ${svs.length? svs.map(sv=>`<div class="sv-av" data-svid="${sv.id}"><label>${esc(sv.nome)}</label>${fasceWidget(val("sv:"+sv.id, maxPct(sv.id)))}</div>`).join("")
                     : `<div class="sv-av" data-iav="${si.id}"><label class="muted">Avanzamento dell'intervento</label>${fasceWidget(val("iav:"+si.id, maxPctInt(si.id)))}</div>`}
-        ${rigaNota(si)}${rigaDate(si)}
+        ${rigaNota(si)}${rigaDate(si)}${rigaSegnala(si)}
       </div>`;
     }).join("")+`</div>`).join("");
-  const catSel = cats.length<2 ? "" : `<div class="field cp-cat-f"><label>Categoria di lavorazioni</label>
+  const catSel = cats.length<2 ? "" : `<div class="field cp-cat-f"><label>Categoria</label>
     <select id="c-cat" onchange="setCpCat(this.value)">
       ${cats.map(c=>`<option value="${c.id}" ${CP_CAT===c.id?"selected":""}>${esc(c.nome)} — ${intDi(c).length} ${intDi(c).length===1?"lavorazione":"lavorazioni"}</option>`).join("")}
       <option value="*" ${CP_CAT==="*"?"selected":""}>— tutte le categorie insieme —</option>
     </select>
-    ${pendenti.size?`<div class="cp-pend">⚠️ Hai indicato qualcosa in ${pendenti.size} ${pendenti.size===1?"lavorazione":"lavorazioni"} di altre categorie: resta in memoria e parte con «Invia compilazione».</div>`:""}</div>`;
-  const intOpts = attivi.map(si=>{const i=DB.interventi.find(x=>x.id===si.intervento_id);return `<option value="${si.id}">${esc(i?i.nome:'?')}</option>`}).join("");
+    ${pendenti.size?`<div class="cp-pend">${pendenti.size} ${pendenti.size===1?"lavorazione modificata":"lavorazioni modificate"} in altre categorie: partono con questo invio.</div>`:""}</div>`;
   let nc=0; const nn=()=>`<span class="n">${++nc}</span>`;
   const nGiornata = nn();   // la giornata è sempre la prima scheda, anche dove c'è la sotto-area
   const areaSel = aree.find(a=>a.id===SA_SEL);
@@ -2026,14 +2085,9 @@ async function rCompila(){
     </div></div>
   ${cardArea}
   <div class="card"><h2>${nn()}Avanzamento${ambito}</h2>
-    <p class="muted">Indica la fascia raggiunta (cumulativa). Lascia n/d se non c'è avanzamento. Quello che indichi resta in memoria anche se cambi categoria: parte tutto insieme con «Invia compilazione».</p>
+    <p class="muted">Indica la fascia raggiunta (cumulativa). Lascia n/d se non c'è avanzamento.</p>
     ${catSel}
     ${avzHtml||'<p class="muted">Nessuna lavorazione da compilare in questo ambito: controlla il Setup.</p>'}
-  </div>
-  <div class="card"><h2>${nn()}Ritardi / fermi</h2>
-    <p class="muted">Un ritardo segnalato su una lavorazione resta aperto e sposta il Gantt di altrettanti giorni, finché non lo spunti come risolto nella scheda della lavorazione qui sopra.</p>
-    <div id="c-ri-list"></div>
-    <button class="add" id="c-ri-add">+ Segnala ritardo</button>
   </div>
   <div class="err" id="c-err"></div>
   <button class="btn btn-p" id="c-invia">Invia compilazione</button>`;
@@ -2057,6 +2111,28 @@ async function rCompila(){
     const {error}=await sb.from("ritardi").update({risolto:true,data_risoluzione:oggi()}).eq("id",+c.dataset.risolto);
     if(error){ c.checked=false; c.disabled=false; return toast("Errore: ritardo non aggiornato"); }
     toast("Ritardo risolto ✓"); rCompila();
+  });
+  // segnalazione di un ritardo dalla lavorazione stessa: si registra subito
+  $$("#pane-compila [data-rit]").forEach(box=>{
+    const siid=+box.dataset.rit;
+    const pannello=box.querySelector(".cp-rit-new");
+    box.querySelector(".cp-rit-add").onclick=()=>{
+      pannello.classList.toggle("hide");
+      if(!pannello.classList.contains("hide")) box.querySelector(".rn-gg").focus();
+    };
+    box.querySelector(".rn-ok").onclick=async()=>{
+      const gg=+box.querySelector(".rn-gg").value||0;
+      const cid=+box.querySelector(".rn-causa").value||0;
+      if(gg<=0) return toast("Indica quanti giorni");
+      if(!cid)  return toast("Scegli la causale");
+      const c=DB.causali.find(x=>x.id===cid);
+      const d=($("#c-data")&&$("#c-data").value)||oggi();
+      const {error}=await sb.from("ritardi").insert({sito_id:CC.sito, sito_intervento_id:siid,
+        data:d, giorni:gg, causa:c?c.nome:null,
+        forza_maggiore:c?!!c.forza_maggiore:false, risolto:false});
+      if(error) return toast("Errore: ritardo non registrato");
+      toast("Ritardo registrato ✓"); rCompila();
+    };
   });
   // date effettive: si salvano da sole, come le ore e le macchine
   $$("#pane-compila [data-dl]").forEach(box=>{
@@ -2082,15 +2158,6 @@ async function rCompila(){
     box.querySelectorAll(".cp-di,.cp-df").forEach(i=>i.onchange=salva);
     box.querySelector(".cp-dn").onblur=salva;
   });
-  // ritardi
-  const causaliOpts=DB.causali.map(c=>`<option value="${c.id}">${esc(c.nome)}${c.forza_maggiore?" (forza maggiore)":""}</option>`).join("");
-  const riRow=()=>`<div class="dyn-row" style="grid-template-columns:1.2fr .5fr 1.3fr 1.2fr auto">
-    <select class="ri-int"><option value="">— intero sito —</option>${intOpts}</select>
-    <input type="number" class="ri-gg" placeholder="giorni">
-    <select class="ri-causa"><option value="">causale…</option>${causaliOpts}</select>
-    <input class="ri-nota" maxlength="200" placeholder="nota (facoltativa)">
-    <button class="x" onclick="this.parentNode.remove()">×</button></div>`;
-  $("#c-ri-add").onclick=()=>$("#c-ri-list").insertAdjacentHTML("beforeend",riRow());
   if($("#c-sa")) $("#c-sa").onchange=e=>{
     SA_SEL = e.target.value==="sito" ? "sito" : +e.target.value;
     SA_PIU = SA_SEL==="sito" ? [] : [SA_SEL];   // dal menù si sceglie una zona sola
@@ -2178,9 +2245,8 @@ async function inviaCompilazione(){
     else if(t==="pz")   piante[id]=+CP_BOZZA[k]||0;
   }
   const conNota = new Set(Object.keys(note).map(Number));
-  const nRit = $$("#c-ri-list .dyn-row").filter(r=>(+r.querySelector(".ri-gg").value||0)>0).length;
-  if(!Object.keys(CP_BOZZA).length && !nRit)
-    return err("#c-err","Non c'è nulla da inviare: indica una fascia, scrivi una nota o segnala un ritardo. Le date effettive e i ritardi risolti si salvano da soli, senza invio.");
+  if(!Object.keys(CP_BOZZA).length)
+    return err("#c-err","Non c'è nulla da inviare: indica una fascia o scrivi una nota.");
   for(const svid of Object.keys(svPct).map(Number)){
     const pct=svPct[svid]; if(pct<=0) continue;
     const sv=(CC.D.sottovoci||[]).find(x=>x.id===svid);
@@ -2205,15 +2271,6 @@ async function inviaCompilazione(){
   for(const siid of Object.keys(piante).map(Number)){
     if(piante[siid]>0) await sb.from("avanz_piante").insert({sito_id:sito,sito_intervento_id:siid,
       sotto_area_id:sa,data,compilatore:comp,piante:piante[siid]});
-  }
-  for(const r of $$("#c-ri-list .dyn-row")){
-    const gg=+r.querySelector(".ri-gg").value||0; if(gg<=0)continue;
-    const si=r.querySelector(".ri-int").value;
-    const cid=+r.querySelector(".ri-causa").value||0;
-    const caus=DB.causali.find(c=>c.id===cid);
-    const nt=(r.querySelector(".ri-nota").value||"").trim()||null;
-    await sb.from("ritardi").insert({sito_id:sito,sito_intervento_id:si?+si:null,data,giorni:gg,
-      causa:caus?caus.nome:null, forza_maggiore:caus?!!caus.forza_maggiore:false, nota:nt, risolto:false});
   }
   CP_BOZZA={};
   toast("Compilazione inviata ✓"); rCompila();
@@ -2506,7 +2563,7 @@ async function mappaAree(sid){
     toast("Ortofoto SITR non raggiungibile: puoi comunque rivedere le aree già salvate"); });
   SA={map,sid,aree,strati:[],modo:null,punti:[],linea:null,vertici:[],target:null,bozza:null,segno:null};
   inquadra();
-  collegaImport();
+  collegaImport();   // ricollegato anche qui: il pannello può essere stato ridisegnato
   map.on("click",e=>{ if(SA.modo==="dividi") puntoTaglio(e.latlng); });
   pitturaAree(); barraAree(); elencoAree();
 }
@@ -2728,6 +2785,14 @@ function areeDaKml(testo){
   doc.querySelectorAll("Placemark").forEach(pm=>{
     let nome=""; 
     for(const c of pm.children) if(c.tagName==="name"){ nome=(c.textContent||"").trim(); break; }
+    /* Gli export catastali non mettono il nome sul segnaposto ma foglio e particella
+       nei dati estesi: meglio «Fg. 407 part. 41» di un anonimo «Area 7». */
+    if(!nome){
+      const sd=[...pm.querySelectorAll("SimpleData")];
+      const v=k=>{ const e=sd.find(x=>x.getAttribute("name")===k); return e?(e.textContent||"").trim():""; };
+      const fo=v("FOGLIO").replace(/^0+(?=\d)/,""), pa=v("PARTICELLA");
+      if(pa) nome = fo ? `Fg. ${fo} part. ${pa}` : `Part. ${pa}`;
+    }
     const anelli=[...pm.querySelectorAll("outerBoundaryIs LinearRing coordinates")];
     const linee = anelli.length ? [] : [...pm.querySelectorAll("LineString coordinates")];
     [...anelli, ...linee].forEach(nodo=>{
@@ -2736,43 +2801,74 @@ function areeDaKml(testo){
       pezzi.push({nome: nome || "", pts, ettari: ettariDi(pts)});
     });
   });
-  pezzi.forEach((z,i)=>{ if(!z.nome) z.nome="Area "+(i+1); });
-  return pezzi;
+  return pezzi;   // i senza nome si numerano dopo lo scarto, per non lasciare buchi
 }
+/* messaggio che resta a video: un toast che passa non basta a capire cosa è andato storto */
+function avvisoAree(html){ const r=$("#a-ris"); if(r) r.innerHTML = html ? `<div class="banner">${html}</div>` : ""; }
 async function leggiFileAree(file){
+  avvisoAree(`Leggo <b>${esc(file.name)}</b>…`);
   try{
+    const buf=await file.arrayBuffer();
+    const testa=new Uint8Array(buf.slice(0,4));
+    /* KMZ o KML si riconoscono dal contenuto: un KMZ è uno zip e comincia per "PK",
+       qualunque estensione gli abbia messo chi l'ha esportato. */
+    const zippato = testa[0]===0x50 && testa[1]===0x4B;
     let testo;
-    if(/\.kmz$/i.test(file.name)){
+    if(zippato){
       await libZip();
-      const zip=await JSZip.loadAsync(await file.arrayBuffer());
-      const dentro=Object.keys(zip.files).find(x=>/\.kml$/i.test(x));
-      if(!dentro) throw new Error("nel KMZ non c'è nessun KML");
-      testo=await zip.file(dentro).async("string");
-    } else testo=await file.text();
+      const zip=await JSZip.loadAsync(buf);
+      const dentro=Object.keys(zip.files).filter(x=>/\.kml$/i.test(x) && !zip.files[x].dir);
+      if(!dentro.length) throw new Error("è un archivio, ma dentro non c'è nessun file .kml");
+      testo=await zip.file(dentro[0]).async("string");
+    } else {
+      testo=new TextDecoder("utf-8").decode(buf);
+    }
+    if(!/<kml[\s>]|<Placemark[\s>]/i.test(testo))
+      throw new Error("non sembra un file di Google Earth: dentro non c'è né &lt;kml&gt; né &lt;Placemark&gt;");
     const trovate=areeDaKml(testo);
-    if(!trovate.length) return toast("Nel file non ci sono aree riconoscibili");
+    if(!trovate.length){
+      avvisoAree(`In <b>${esc(file.name)}</b> non ho trovato nessun poligono: il file contiene forse solo punti o percorsi, non aree chiuse.`);
+      return toast("Nel file non ci sono aree riconoscibili");
+    }
     const buone=trovate.filter(z=>z.ettari>=0.1);
-    const scarti=trovate.length-buone.length;
-    if(!buone.length) return toast("Tutte le zone del file sono sotto 0,1 ha");
-    SA.imp={buone, scarti, nomeFile:file.name};
+    const scarti=trovate.filter(z=>z.ettari<0.1);
+    buone.forEach((z,i)=>{ if(!z.nome) z.nome="Area "+(i+1); });
+    if(!trovate.some(z=>z.ettari>=0.1)){
+      avvisoAree(`In <b>${esc(file.name)}</b> ho trovato ${trovate.length} poligoni, ma sono tutti sotto 0,1 ha (il più grande ${ha(Math.max(...trovate.map(z=>z.ettari)))}): di solito sono scarti del disegno catastale.`);
+      return toast("Tutte le zone del file sono sotto 0,1 ha");
+    }
+    SA.imp={buone, scarti:scarti.length, nomeFile:file.name};
     SA.modo="import";
-    // anteprima sulla mappa
-    SA.prev=(SA.prev||[]); SA.prev.forEach(l=>SA.map.removeLayer(l)); SA.prev=[];
-    buone.forEach(z=>{
-      const pl=L.polygon(z.pts,{color:"#E8A33D",weight:2,dashArray:"6,4",fillColor:"#E8A33D",fillOpacity:.25,interactive:false}).addTo(SA.map);
-      SA.prev.push(pl);
-    });
-    SA.map.fitBounds(L.latLngBounds(buone.flatMap(z=>z.pts)),{padding:[30,30],maxZoom:19});
+    const tot=buone.reduce((t,z)=>t+z.ettari,0);
+    avvisoAree(`Da <b>${esc(file.name)}</b>: <b>${buone.length}</b> aree per <b>${ha(tot)}</b> in tutto${
+      scarti.length?`, più ${scarti.length} sotto 0,1 ha che scarto`:""}. ${
+      SA.map?"In arancione l'anteprima sulla mappa.":"La mappa non è disponibile: controlla l'elenco qui sotto prima di confermare."}
+      <br>${buone.map(z=>`${esc(z.nome)} ${ha(z.ettari)}`).join(" · ")}`);
+    if(SA.map){
+      SA.prev=(SA.prev||[]); SA.prev.forEach(l=>SA.map.removeLayer(l)); SA.prev=[];
+      buone.forEach(z=>{
+        const pl=L.polygon(z.pts,{color:"#E8A33D",weight:2,dashArray:"6,4",fillColor:"#E8A33D",fillOpacity:.25,interactive:false}).addTo(SA.map);
+        SA.prev.push(pl);
+      });
+      SA.map.fitBounds(L.latLngBounds(buone.flatMap(z=>z.pts)),{padding:[30,30],maxZoom:19});
+    }
     barraAree(); elencoAree();
-  }catch(e){ toast("Non riesco a leggere il file: "+e.message); }
+  }catch(e){
+    avvisoAree(`Non riesco a leggere <b>${esc(file.name)}</b>: ${e.message}`);
+    toast("Non riesco a leggere il file");
+  }
 }
 window.saImportaAnnulla = () => {
-  (SA.prev||[]).forEach(l=>SA.map.removeLayer(l)); SA.prev=[];
-  SA.imp=null; SA.modo=null; barraAree(); elencoAree(); inquadra();
+  if(SA.map) (SA.prev||[]).forEach(l=>SA.map.removeLayer(l));
+  SA.prev=[]; SA.imp=null; SA.modo=null; avvisoAree("");
+  barraAree(); elencoAree(); if(SA.map) inquadra();
 };
 window.saImportaConferma = async () => {
   const imp=SA.imp; if(!imp) return;
-  const esistenti=new Set(SA.aree.map(a=>a.nome.toLowerCase()));
+  // i nomi già in uso si rileggono dalla banca dati: valgono anche senza mappa caricata
+  const {data:gia}=await sb.from("sotto_aree").select("id,nome").eq("sito_id",SA.sid);
+  SA.aree = SA.aree.length ? SA.aree : (gia||[]);
+  const esistenti=new Set((gia||[]).map(a=>(a.nome||"").toLowerCase()));
   const righe=imp.buone.map((z,i)=>{
     let nome=z.nome, k=1;
     while(esistenti.has(nome.toLowerCase())) nome=z.nome+" ("+(++k)+")";
@@ -2787,7 +2883,7 @@ window.saImportaConferma = async () => {
 };
 async function ricaricaAree(){
   const {data}=await sb.from("sotto_aree").select("*").eq("sito_id",SA.sid).order("ordine");
-  SA.aree=data||[]; pitturaAree(); barraAree(); elencoAree(); inquadra();
+  SA.aree=data||[]; if(SA.map){ pitturaAree(); inquadra(); } barraAree(); elencoAree();
 }
 
 /* ============ MODIFICA DEI VERTICI ============ */
@@ -2947,7 +3043,7 @@ function barraAree(){
   }
   if(SA.modo==="import"){
     const i=SA.imp||{buone:[],scarti:0};
-    b.innerHTML=`<span class="sa-hint">Dal file <b>${esc(i.nomeFile||"")}</b>: <b>${i.buone.length}</b> aree${i.scarti?`, ${i.scarti} scartate perché sotto 0,1 ha`:""}. In arancione l'anteprima.</span>
+    b.innerHTML=`<span class="sa-hint">Dal file <b>${esc(i.nomeFile||"")}</b>: <b>${i.buone.length}</b> aree${i.scarti?`, ${i.scarti} scartate perché sotto 0,1 ha`:""}. ${SA.map?"In arancione l'anteprima.":"Senza mappa: nessuna anteprima."}</span>
       <button class="btn btn-p btn-sm" onclick="saImportaConferma()">Importa ${i.buone.length} aree</button>
       <button class="btn btn-o btn-sm" onclick="saImportaAnnulla()">Annulla</button>`;
     return;
@@ -3128,7 +3224,7 @@ const SETUP = {
     <p class="muted">Le sotto-aree arrivano dai file di Google Earth (KMZ o KML): qui si importano e si correggono. Gli ettari si calcolano dal disegno e fanno da peso — una sotto-area di 20 ha conta il doppio di una da 10. Le lavorazioni entrano nelle sotto-aree solo se marcate «per sotto-area» in <b>Interventi e sotto-voci</b>.</p>
     <p class="muted" style="font-size:11.5px">Puoi spostare i vertici di un'area, unirne due o più, o dividerne una in due lungo una linea. Le zone sotto 0,1 ha vengono scartate all'importazione: di solito sono scarti del disegno.</p>
     <div class="sa-cerca">
-      <input type="file" id="a-file" accept=".kmz,.kml,application/vnd.google-earth.kmz" style="display:none">
+      <input type="file" id="a-file" accept=".kmz,.kml,.xml,.zip,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/xml,text/xml,application/zip" style="display:none">
       <button class="btn btn-g btn-sm" id="a-imp">📥 Importa KMZ / KML</button>
       <span class="muted" style="font-size:11.5px">un file per sito, come esportato da Google Earth</span>
     </div>
@@ -3164,9 +3260,20 @@ const SETUP = {
   $("#a-tutte").onclick=()=>marcaTutte(true);
   $("#a-nessuna").onclick=()=>marcaTutte(false);
   contaDivise();
+  /* L'importazione non dipende dalla mappa. Prima il pulsante veniva collegato solo
+     dentro mappaAree(), cioè dopo il caricamento di Leaflet: se la libreria tardava o
+     non arrivava, il pulsante restava muto e non succedeva nulla. Ora si collega subito. */
+  SA={map:null,sid,aree:[],strati:[],modo:null,punti:[],linea:null,vertici:[],target:null,bozza:null,segno:null};
+  collegaImport();
+  let mappaOk=true;
   try{ await caricaLeaflet(); }
-  catch(e){ $("#a-map").innerHTML=`<p class="muted" style="padding:14px">Mappa non raggiungibile: controlla la connessione e riapri la sezione.</p>`; return; }
-  await mappaAree(sid);
+  catch(e){
+    mappaOk=false;
+    $("#a-map").innerHTML=`<p class="muted" style="padding:14px">Mappa non raggiungibile: la connessione sta bloccando la libreria esterna. <b>L'importazione del file funziona lo stesso</b>, solo senza anteprima: le aree si vedranno nell'elenco qui sotto.</p>`;
+    const {data}=await sb.from("sotto_aree").select("*").eq("sito_id",sid).order("ordine");
+    SA.aree=data||[]; barraAree(); elencoAree();
+  }
+  if(mappaOk) await mappaAree(sid);
   SETUP_DIRTY=false; setupAggiornaStato();
  },
  async operai(){ anag("operai","Operai",[["nome","Nome",null],["tariffa_ora","€/ora","number"]]) },
