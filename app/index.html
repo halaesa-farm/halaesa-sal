@@ -225,7 +225,7 @@ details.pan .pan-b{padding:0 16px 16px}
 .cp-date .field{margin:0}
 .cp-date label{font-size:11px}
 .cp-date input{font-size:13px;padding:7px 9px}
-.cp-dn-f,.cp-dpiano{grid-column:1/-1}
+.cp-dpiano{grid-column:1/-1}
 .cp-dpiano{font-size:11px;color:var(--mut)}
 @media(max-width:430px){.cp-date{grid-template-columns:1fr}}
 .cp-rit-ult{font-size:12px;color:var(--mut);margin-top:6px;padding-left:2px}
@@ -239,9 +239,11 @@ details.pan .pan-b{padding:0 16px 16px}
 .cp-link{background:none;border:0;padding:0;font-size:12px;font-weight:700;color:var(--forest);
   cursor:pointer;text-transform:none;letter-spacing:0}
 .cp-link:hover{text-decoration:underline}
-.cp-rit-new{display:grid;grid-template-columns:92px 1fr auto;gap:6px;margin-top:8px}
+.cp-rit-new{display:grid;grid-template-columns:92px 1fr auto;gap:8px;margin-top:8px;align-items:end}
 .cp-rit-new input,.cp-rit-new select{font-size:13px;padding:8px 9px}
-@media(max-width:430px){.cp-rit-new{grid-template-columns:1fr}}
+.cp-rit-new .field{margin:0;grid-column:1/3}
+.cp-rit-new label{font-size:11px}
+@media(max-width:430px){.cp-rit-new{grid-template-columns:1fr}.cp-rit-new .field{grid-column:1}}
 .chk{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;margin:6px 0;cursor:pointer}
 .chk input{width:18px;height:18px}
 .chk2{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--mut)}
@@ -1998,6 +2000,7 @@ async function rCompila(){
       <div class="cp-rit-new hide">
         <input type="number" class="rn-gg" min="1" placeholder="giorni">
         <select class="rn-causa"><option value="">Causale</option>${causaliOpts}</select>
+        <div class="field rn-nota-f"><label>Note ritardo</label><input class="rn-nota" maxlength="200"></div>
         <button type="button" class="btn btn-p btn-sm rn-ok">Registra</button>
       </div></div>`;
   // date reali di inizio e fine: le scrive chi compila, il piano resta quello del Setup
@@ -2008,8 +2011,6 @@ async function rCompila(){
     return `<div class="cp-date" data-dl="${si.id}">
       <div class="field"><label>Inizio effettivo</label><input type="date" class="cp-di" ${DATA_ATTR} value="${d.data_inizio_eff||""}"></div>
       <div class="field"><label>Fine effettiva</label><input type="date" class="cp-df" ${DATA_ATTR} value="${d.data_fine_eff||""}"></div>
-      <div class="field cp-dn-f"><label>Note sulle date</label><input class="cp-dn" maxlength="200"
-        value="${esc(d.nota||"")}" placeholder="es. fermo per pioggia, chiusa in anticipo"></div>
       <div class="cp-dpiano">Da piano: ${si.data_inizio?dataIt(si.data_inizio):"—"} → ${fp?dataIt(fp):"—"}${
         si.durata_giorni?` · ${si.durata_giorni} gg`:""}${si.scadenza?` · scadenza ${dataIt(si.scadenza)}`:""}</div>
     </div>`;
@@ -2123,12 +2124,13 @@ async function rCompila(){
     box.querySelector(".rn-ok").onclick=async()=>{
       const gg=+box.querySelector(".rn-gg").value||0;
       const cid=+box.querySelector(".rn-causa").value||0;
+      const nt=(box.querySelector(".rn-nota").value||"").trim()||null;
       if(gg<=0) return toast("Indica quanti giorni");
       if(!cid)  return toast("Scegli la causale");
       const c=DB.causali.find(x=>x.id===cid);
       const d=($("#c-data")&&$("#c-data").value)||oggi();
       const {error}=await sb.from("ritardi").insert({sito_id:CC.sito, sito_intervento_id:siid,
-        data:d, giorni:gg, causa:c?c.nome:null,
+        data:d, giorni:gg, causa:c?c.nome:null, nota:nt,
         forza_maggiore:c?!!c.forza_maggiore:false, risolto:false});
       if(error) return toast("Errore: ritardo non registrato");
       toast("Ritardo registrato ✓"); rCompila();
@@ -2140,23 +2142,21 @@ async function rCompila(){
     const salva=async()=>{
       const di=box.querySelector(".cp-di").value||null;
       const df=box.querySelector(".cp-df").value||null;
-      const nt=(box.querySelector(".cp-dn").value||"").trim()||null;
       if(di && !dataValida(di)) return toast("Data di inizio non valida");
       if(df && !dataValida(df)) return toast("Data di fine non valida");
       if(di && df && df<di)     return toast("La fine non può precedere l'inizio");
       const {error}=await sb.from("date_lavorazione").upsert({sito_id:CC.sito,sito_intervento_id:siid,
-        data_inizio_eff:di, data_fine_eff:df, nota:nt,
+        data_inizio_eff:di, data_fine_eff:df,
         aggiornato_il:new Date().toISOString(), aggiornato_da:(($("#c-comp")||{}).value||P.nome)},
         {onConflict:"sito_intervento_id"});
       if(error) return toast("Errore di salvataggio delle date");
       const arr=CC.D.date_lavorazione||(CC.D.date_lavorazione=[]);
       const ex=arr.find(x=>x.sito_intervento_id===siid);
-      if(ex) Object.assign(ex,{data_inizio_eff:di,data_fine_eff:df,nota:nt});
-      else arr.push({sito_id:CC.sito,sito_intervento_id:siid,data_inizio_eff:di,data_fine_eff:df,nota:nt});
+      if(ex) Object.assign(ex,{data_inizio_eff:di,data_fine_eff:df});
+      else arr.push({sito_id:CC.sito,sito_intervento_id:siid,data_inizio_eff:di,data_fine_eff:df});
       toast("Date salvate ✓");
     };
     box.querySelectorAll(".cp-di,.cp-df").forEach(i=>i.onchange=salva);
-    box.querySelector(".cp-dn").onblur=salva;
   });
   if($("#c-sa")) $("#c-sa").onchange=e=>{
     SA_SEL = e.target.value==="sito" ? "sito" : +e.target.value;
