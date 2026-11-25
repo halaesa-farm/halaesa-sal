@@ -236,6 +236,16 @@ details.pan .pan-b{padding:0 16px 16px}
 .cp-stor[open] summary::before{content:"▾ "}
 .cp-stor>div{color:var(--mut);padding:3px 0 3px 12px;border-bottom:1px dotted var(--bordo)}
 .cp-add{margin-top:8px}
+.glog{font-size:12.5px}
+.glog .gl-r{display:grid;grid-template-columns:76px 1fr auto auto;gap:8px;align-items:center;
+  padding:7px 0;border-bottom:1px solid var(--bordo)}
+.glog .gl-r:last-child{border-bottom:0}
+.gl-d{color:var(--mut);font-variant-numeric:tabular-nums}
+.gl-q{font-weight:800;white-space:nowrap}
+.gl-n{color:var(--mut);font-size:11.5px}
+.gl-x{background:none;border:0;color:#A33;cursor:pointer;font-size:15px;line-height:1;padding:0 2px}
+.gl-tot{display:flex;justify-content:space-between;margin-top:10px;padding-top:8px;
+  border-top:2px solid var(--forest);font-weight:800;font-size:13px}
 .cp-link{background:none;border:0;padding:0;font-size:12px;font-weight:700;color:var(--forest);
   cursor:pointer;text-transform:none;letter-spacing:0}
 .cp-link:hover{text-decoration:underline}
@@ -511,6 +521,8 @@ function dateErrate(inputs){
 let P = null;          // profilo: {id,nome,ruolo,super_user,sito_id,email}
 const isSuper = () => !!P?.super_user;
 const isReadOnly = () => !!P?.sola_lettura;
+// utenza condivisa degli operai: vede soltanto il carburante
+const soloCarb = () => !!P?.solo_carburante;
 let DB = {};           // anagrafiche in cache: siti, attivita, operai, macchine, terzisti
 const FASCE = [25,50,75,100];
 
@@ -555,17 +567,17 @@ async function start(){
   $("#who-nome").textContent = P.nome;
   const sitoNome = DB.siti.find(s=>s.id===P.sito_id)?.nome || "Tutti i siti";
   $("#who-ruolo").textContent = P.ruolo + " · " + sitoNome;
-  buildTabs(); show((isSuper()||isReadOnly()) ? "dash" : "compila");
+  buildTabs(); show(soloCarb() ? "carburanti" : (isSuper()||isReadOnly()) ? "dash" : "compila");
 }
 
 /* ---------------- TABS / ROUTING ---------------- */
 const TABS = {
-  compila:{ic:"📝",l:"Lavori",who:p=>!isReadOnly()},
-  ore:{ic:"⏱️",l:"Ore",who:p=>!isReadOnly()},
-  macchine:{ic:"🚜",l:"Macchine",who:p=>!isReadOnly()},
+  compila:{ic:"📝",l:"Lavori",who:p=>!isReadOnly()&&!soloCarb()},
+  ore:{ic:"⏱️",l:"Ore",who:p=>!isReadOnly()&&!soloCarb()},
+  macchine:{ic:"🚜",l:"Macchine",who:p=>!isReadOnly()&&!soloCarb()},
   carburanti:{ic:"⛽",l:"Carburanti",who:p=>!isReadOnly()},
-  sito:{ic:"📍",l:"Il mio sito",who:p=>!isReadOnly()&&!isSuper()&&p.sito_id},
-  gantt:{ic:"📅",l:"Gantt",who:p=>true},
+  sito:{ic:"📍",l:"Il mio sito",who:p=>!isReadOnly()&&!isSuper()&&!soloCarb()&&p.sito_id},
+  gantt:{ic:"📅",l:"Gantt",who:p=>!soloCarb()},
   dash:{ic:"📊",l:"Dashboard",who:p=>isSuper()||isReadOnly()},
   setup:{ic:"⚙️",l:"Setup",who:p=>isSuper()&&!isReadOnly()},
 };
@@ -830,7 +842,7 @@ let CP_CAT = null;    // categoria aperta nella compilazione ("*" = tutte)
 let CP_BOZZA = {};    // quanto il FM ha indicato ma non ancora inviato: sopravvive al cambio di categoria
 let CURRENT_TAB = "compila";
 function mieiSiti(){
-  if(isSuper()) return DB.siti;
+  if(isSuper()||soloCarb()) return DB.siti;   // il rifornimento va dichiarato ovunque sia avvenuto
   const ids=new Set([...(DB.mieiSitiIds||[]), ...(P.sito_id?[P.sito_id]:[])]);
   return DB.siti.filter(s=>ids.has(s.id));
 }
@@ -1696,6 +1708,45 @@ function pannelloRitardi(all){
         <td>${x.r.risolto?`risolto il ${dataIt(x.r.data_risoluzione)||"—"}`:'<b>aperto</b>'}</td></tr>`).join("")}
     </table></div>`;
 }
+/* ---- registro del carburante: ogni prelievo, da chi e dove ---- */
+let CARB_APERTO=false;
+window.carbToggle = ap => { CARB_APERTO=!!ap; };
+function pannelloCarburante(all){
+  const pg=DB.par?.prezzo_gasolio||0, pb=DB.par?.prezzo_benzina||0;
+  const righe=[];
+  for(const {sito,D} of all)
+    for(const g of D.carburanti)
+      righe.push({sito:nomeSito(sito), g, costo:(+g.litri_gasolio||0)*pg+(+g.litri_benzina||0)*pb});
+  if(!righe.length) return `<p class="muted">Nessun rifornimento registrato.</p>`;
+  righe.sort((a,b)=>String(b.g.data).localeCompare(String(a.g.data))||(b.g.id-a.g.id));
+  const litri=l=>l.reduce((t,x)=>t+(+x.g.litri_gasolio||0)+(+x.g.litri_benzina||0),0);
+  const mese=oggi().slice(0,7);
+  const delMese=righe.filter(x=>String(x.g.data).slice(0,7)===mese);
+  // per operatore, dal più alto: è la lettura che serve per capire dove va il gasolio
+  const perOp={};
+  for(const x of righe){ const k=x.g.operatore||"(non indicato)";
+    perOp[k]=(perOp[k]||0)+(+x.g.litri_gasolio||0)+(+x.g.litri_benzina||0); }
+  const classifica=Object.entries(perOp).sort((a,b)=>b[1]-a[1]);
+  const num=v=>v.toLocaleString("it-IT",{maximumFractionDigits:1});
+  const vuoti=righe.filter(x=>!(+x.g.litri_gasolio||0) && !(+x.g.litri_benzina||0)).length;
+  return `<p class="muted">${righe.length} ${righe.length===1?"registrazione":"registrazioni"}${vuoti?`, di cui ${vuoti} ${vuoti===1?"dichiarazione":"dichiarazioni"} di «nessun rifornimento»`:""}. In tutto <b>${num(litri(righe))} litri</b> per ${eur(righe.reduce((t,x)=>t+x.costo,0))}; nel mese corrente ${num(litri(delMese))} litri. Il prezzo applicato è quello del Setup: gasolio ${eur(pg)}/L, benzina ${eur(pb)}/L.</p>
+    <div class="scroll-x"><table class="grid">
+      <tr><th>Data</th><th>Sito</th><th>Operatore</th><th style="text-align:right">Gasolio</th><th style="text-align:right">Benzina</th><th style="text-align:right">Costo</th><th>Note</th></tr>
+      ${righe.slice(0,300).map(x=>`<tr>
+        <td>${dataIt(x.g.data)}</td><td>${esc(x.sito)}</td><td>${esc(x.g.operatore||"—")}</td>
+        <td style="text-align:right">${(+x.g.litri_gasolio||0)?num(+x.g.litri_gasolio):"—"}</td>
+        <td style="text-align:right">${(+x.g.litri_benzina||0)?num(+x.g.litri_benzina):"—"}</td>
+        <td style="text-align:right">${x.costo?eur(x.costo):"—"}</td>
+        <td>${esc(x.g.note||"")}</td></tr>`).join("")}
+    </table></div>
+    ${righe.length>300?`<p class="muted">Mostrate le 300 registrazioni più recenti su ${righe.length}. L'esportazione CSV le contiene tutte.</p>`:""}
+    <h3 style="margin:16px 0 6px;font-size:13px">Litri per operatore</h3>
+    <div class="scroll-x"><table class="grid">
+      <tr><th>Operatore</th><th style="text-align:right">Litri</th><th style="text-align:right">Quota</th></tr>
+      ${classifica.map(([k,v])=>`<tr><td>${esc(k)}</td><td style="text-align:right">${num(v)}</td>
+        <td style="text-align:right">${litri(righe)?Math.round(v/litri(righe)*100):0}%</td></tr>`).join("")}
+    </table></div>`;
+}
 let chRef=null;
 async function rDash(){
   const all = await calcTutti();
@@ -1779,6 +1830,9 @@ async function rDash(){
    <details class="card pan" ${RIT_APERTO?"open":""} ontoggle="ritToggle(this.open)">
      <summary class="pan-h"><span class="pan-t">Registro ritardi</span><span class="pan-apri">apri</span></summary>
      <div class="pan-b">${pannelloRitardi(all)}</div></details>
+   <details class="card pan" ${CARB_APERTO?"open":""} ontoggle="carbToggle(this.open)">
+     <summary class="pan-h"><span class="pan-t">Registro carburante</span><span class="pan-apri">apri</span></summary>
+     <div class="pan-b">${pannelloCarburante(all)}</div></details>
    <div class="switch">
      <button class="${VISTA==="categorie"?"on":""}" onclick="setVista('categorie')">Per lavorazione</button>
      <button class="${VISTA==="perizia"?"on":""}" onclick="setVista('perizia')">Per categoria perizia</button>
@@ -2398,8 +2452,53 @@ const REFERENTI_CARBURANTI = ["Biagio Campo","Francesco Mastrandrea","Eristo Tri
 const OP_TERZISTA = "Terzista";   // non e' una persona: il nome della ditta va nelle note
 function operatoriCarburanti(){
   const l=[...DB.operai.map(o=>o.nome), ...REFERENTI_CARBURANTI];
-  if(P&&P.nome && !l.includes(P.nome)) l.push(P.nome);   // chi compila c'è sempre
+  // chi compila c'è sempre, ma «Operai» è il nome dell'utenza condivisa, non di una persona
+  if(P&&P.nome && !soloCarb() && !l.includes(P.nome)) l.push(P.nome);
   return [...new Set(l.filter(Boolean))].sort((a,b)=>a.localeCompare(b,"it"));
+}
+/* L'operatore scelto resta sul telefono: chi rifornisce non lo riseleziona ogni volta. */
+function opRicordato(){
+  try{ const v=localStorage.getItem("halaesa_operatore"); if(v) return v; }catch(e){}
+  // con l'utenza condivisa il nome dell'account non dice chi ha rifornito: lo si sceglie
+  return soloCarb() ? "" : (P&&P.nome);
+}
+function ricordaOp(nome){ try{ localStorage.setItem("halaesa_operatore",nome||""); }catch(e){} }
+/* Registro: all'operaio i propri rifornimenti ovunque siano avvenuti,
+   a chi gestisce il sito tutti quelli del sito. */
+async function caricaLogCarburante(){
+  const box=$("#g-log"); if(!box) return;
+  const mio=soloCarb();
+  let q=sb.from("carburanti").select("*").order("data",{ascending:false}).order("id",{ascending:false}).limit(60);
+  q = mio ? q.eq("operatore",($("#g-op")||{}).value||"") : q.eq("sito_id",sitoCorrente());
+  const {data,error}=await q;
+  if(mio && !(($("#g-op")||{}).value||"")){
+    box.innerHTML=`<p class="muted">Scegli il tuo nome qui sopra per vedere i tuoi rifornimenti.</p>`; return; }
+  if(error){ box.innerHTML=`<p class="muted">Non riesco a leggere il registro in questo momento.</p>`; return; }
+  const righe=data||[];
+  if(!righe.length){ box.innerHTML=`<p class="muted">${mio?"Non risulta ancora nessun rifornimento a tuo nome.":"Nessun rifornimento registrato su questo sito."}</p>`; return; }
+  const nomeDi=id=>{ const x=DB.siti.find(s=>s.id===id); return x?(x.nome_breve||x.nome):"—"; };
+  const mese=oggi().slice(0,7);
+  const totMese=righe.filter(r=>String(r.data).slice(0,7)===mese)
+                     .reduce((t,r)=>t+(+r.litri_gasolio||0)+(+r.litri_benzina||0),0);
+  const litri=r=>{
+    const g=+r.litri_gasolio||0, b=+r.litri_benzina||0;
+    if(!g && !b) return `<span class="gl-n">nessun rifornimento</span>`;
+    return [g?`${g.toLocaleString("it-IT")} L gasolio`:"", b?`${b.toLocaleString("it-IT")} L benzina`:""].filter(Boolean).join(" + ");
+  };
+  box.innerHTML=`<div class="glog">${righe.map(r=>`<div class="gl-r">
+      <span class="gl-d">${dataIt(r.data)}</span>
+      <span>${mio?esc(nomeDi(r.sito_id)):esc(r.operatore||"—")}${r.note?`<br><span class="gl-n">${esc(r.note)}</span>`:""}</span>
+      <span class="gl-q">${litri(r)}</span>
+      ${r.data===oggi()?`<button class="gl-x" data-gcanc="${r.id}" title="Elimina">✕</button>`:"<span></span>"}
+    </div>`).join("")}</div>
+    <div class="gl-tot"><span>Totale del mese</span><span>${totMese.toLocaleString("it-IT",{maximumFractionDigits:1})} L</span></div>
+    <p class="muted" style="margin-top:8px;font-size:11.5px">Si possono eliminare soltanto le righe di oggi: serve a correggere un errore di battitura, non a rifare la storia.</p>`;
+  $$("#g-log [data-gcanc]").forEach(b=>b.onclick=async()=>{
+    if(!await confermaTesto("Eliminare questo rifornimento?")) return;
+    const {error}=await sb.from("carburanti").delete().eq("id",+b.dataset.gcanc);
+    if(error) return toast("Non è stato possibile eliminarlo");
+    toast("Rifornimento eliminato ✓"); caricaLogCarburante();
+  });
 }
 function rCarburanti(){
   const sito=sitoCorrente();
@@ -2414,8 +2513,9 @@ function rCarburanti(){
       <div class="field"><label>Litri benzina</label><input type="number" step="0.01" id="g-litri-b" placeholder="litri"></div>
     </div>
     <div class="field"><label>Operatore</label><select id="g-op">
+      ${soloCarb()?`<option value="" ${opRicordato()?"":"selected"}>— scegli il tuo nome —</option>`:""}
       <optgroup label="Personale">${
-        operatoriCarburanti().map(nm=>`<option value="${esc(nm)}" ${nm===P.nome?"selected":""}>${esc(nm)}</option>`).join("")
+        operatoriCarburanti().map(nm=>`<option value="${esc(nm)}" ${nm===opRicordato()?"selected":""}>${esc(nm)}</option>`).join("")
       }</optgroup>
       <optgroup label="Esterni"><option value="${OP_TERZISTA}">${OP_TERZISTA}</option></optgroup>
     </select></div>
@@ -2424,6 +2524,9 @@ function rCarburanti(){
       <p class="muted" style="margin-top:4px;font-size:11.5px">Promemoria di chi ha prelevato: finisce nelle note del rifornimento.</p></div>
     <button class="btn btn-p" id="g-invia" style="width:100%">Registra rifornimento</button>
     <div class="err" id="g-err"></div>
+  </div>
+  <div class="card"><h2>${soloCarb()?"I miei rifornimenti":"Registro del sito"}</h2>
+    <div id="g-log"><p class="muted">Carico…</p></div>
   </div>`;
   const gsito=()=>sitoCorrente();
   // il nome della ditta si chiede solo quando a prelevare e' un terzista
@@ -2432,21 +2535,27 @@ function rCarburanti(){
     $("#g-terz-box").classList.toggle("hide",!on);
     if(!on) $("#g-terz").value="";
   };
-  $("#g-op").onchange=()=>{ mostraTerzista(); if($("#g-op").value===OP_TERZISTA) $("#g-terz").focus(); };
+  $("#g-op").onchange=()=>{ mostraTerzista(); ricordaOp($("#g-op").value);
+    if($("#g-op").value===OP_TERZISTA) $("#g-terz").focus(); caricaLogCarburante(); };
   mostraTerzista();
+  caricaLogCarburante();
   // 'Terzista' da solo non dice nulla: senza il nome il promemoria e' inutile
   const notaPrelievo=()=>$("#g-op").value===OP_TERZISTA ? $("#g-terz").value.trim() : "";
   const terzistaSenzaNome=()=>$("#g-op").value===OP_TERZISTA && !notaPrelievo();
+  const senzaNome = () => soloCarb() && !$("#g-op").value;
   $("#g-zero").onclick=async()=>{
+    if(senzaNome()){ $("#g-op").focus(); return toast("Scegli il tuo nome dall'elenco."); }
     if(!dataValida($("#g-data").value)) return toast("Data non valida: controlla l'anno.");
     if(terzistaSenzaNome()){ $("#g-terz").focus(); return toast("Indica il nome del terzista."); }
     if(!await confermaSito(gsito(),$("#g-data").value)) return;
     const {error}=await sb.from("carburanti").insert({sito_id:gsito(),data:$("#g-data").value,
       litri_gasolio:0,litri_benzina:0,operatore:$("#g-op").value||P.nome,note:notaPrelievo()||null});
-    if(error)return toast("Errore di salvataggio");toast("Registrato: nessun rifornimento ✓");
+    if(error)return toast("Errore di salvataggio");
+    toast("Registrato: nessun rifornimento ✓"); caricaLogCarburante();
   };
   $("#g-invia").onclick=async()=>{
     $("#g-err").style.display="none";
+    if(senzaNome()){ $("#g-op").focus(); return err("#g-err","Scegli il tuo nome dall'elenco prima di registrare."); }
     const litriG=+$("#g-litri").value||0, litriB=+$("#g-litri-b").value||0;
     if(litriG<=0 && litriB<=0)
       return err("#g-err","Inserisci i litri di gasolio o di benzina, oppure usa «Nessun rifornimento oggi».");
@@ -2458,6 +2567,7 @@ function rCarburanti(){
     if(error)return toast("Errore di salvataggio");
     toast("Rifornimento registrato ✓");
     $("#g-litri").value="";$("#g-litri-b").value="";$("#g-terz").value="";
+    caricaLogCarburante();
   };
 }
 
